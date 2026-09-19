@@ -35,3 +35,8 @@ vitals-dashboard/public/preview.jpg
 vitals-dashboard/public/reading.json
 decision.json
 voice_features.json
+
+# iOS app build output
+vitals-ar-ios/build/
+xcuserdata/
+*.xcuserstate

@@ -1,0 +1,130 @@
+import SwiftUI
+
+@main
+struct VitalsARApp: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+                .statusBarHidden()
+                .persistentSystemOverlays(.hidden)
+                .preferredColorScheme(.light)
+        }
+    }
+}
+
+struct ContentView: View {
+    @StateObject private var store = VitalsStore()
+    @StateObject private var scene = SceneModel()
+    @StateObject private var mic = MicMeter()
+    @StateObject private var plan = VisitPlan()
+    @AppStorage("backendURL") private var backendURL = "ws://192.168.1.10:8765"
+    @AppStorage("useBackend") private var useBackend = false
+    @State private var showSettings = false
+    @State private var screen = CGSize(width: 844, height: 390)
+    @State private var insets = EdgeInsets()
+
+    var body: some View {
+        ZStack {
+            #if targetEnvironment(simulator)
+            SimulatedPatientView(scene: scene).ignoresSafeArea()
+            #else
+            CameraView(scene: scene).ignoresSafeArea()
+            #endif
+            OverlayView(vitals: store.vitals, hrvHistory: store.hrvHistory, micLevel: mic.level,
+                        connection: store.connection, scene: scene, plan: plan,
+                        size: fullSize, inset: insets) { showSettings = true }
+        }
+        .background(
+            Color.clear
+                .ignoresSafeArea()
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { screen = $0; updateDesign() }
+                .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0; updateDesign() }
+        )
+        .onChange(of: store.agenda) { _, items in if let items { plan.syncAgenda(items) } }
+        .onAppear {
+            connect()
+            mic.start()
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(backendURL: $backendURL, useBackend: $useBackend, connection: store.connection, plan: plan,
+                         resetPanels: { scene.resetOffsets() }) {
+                showSettings = false
+                connect()
+            }
+            .presentationDetents([.large])
+        }
+    }
+
+    /// The measured size excludes the safe area; the overlay draws edge to edge.
+    private var fullSize: CGSize {
+        CGSize(width: screen.width + insets.leading + insets.trailing, height: screen.height + insets.top + insets.bottom)
+    }
+
+    private func updateDesign() {
+        scene.design = Layout.design(size: fullSize, inset: insets)
+        scene.bounds = CGRect(origin: .zero, size: fullSize)
+        scene.reanchorRequested = true
+    }
+
+    private func connect() {
+        if useBackend, let url = URL(string: backendURL) { store.useBackend(url: url) } else { store.useDemo() }
+    }
+}
+
+struct SettingsView: View {
+    @Binding var backendURL: String
+    @Binding var useBackend: Bool
+    let connection: VitalsStore.Connection
+    @ObservedObject var plan: VisitPlan
+    let resetPanels: () -> Void
+    let done: () -> Void
+    @State private var topicsText = ""
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Visit") {
+                    Stepper("Appointment length: \(Int(plan.minutes)) min", value: $plan.minutes, in: 5...90, step: 5)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Topics to cover (one per line)").font(.footnote).foregroundStyle(.secondary)
+                        TextEditor(text: $topicsText)
+                            .frame(minHeight: 120)
+                            .font(.system(size: 15))
+                    }
+                    Button("Reset panel positions", action: resetPanels)
+                    Button("Start new visit") {
+                        plan.topicsText = topicsText
+                        plan.restart()
+                        done()
+                    }
+                }
+                Section("Data source") {
+                    Picker("Data source", selection: $useBackend) {
+                        Text("Demo data").tag(false)
+                        Text("Live backend").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    TextField("ws://host:port", text: $backendURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .font(.mono(14))
+                    if case .offline(let reason) = connection {
+                        Text(reason).font(.footnote).foregroundStyle(Palette.danger)
+                    }
+                }
+            }
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") {
+                        if topicsText != plan.topicsText { plan.topicsText = topicsText }
+                        done()
+                    }
+                }
+            }
+            .onAppear { topicsText = plan.topicsText }
+        }
+    }
+}
