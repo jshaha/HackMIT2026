@@ -1,4 +1,4 @@
-import { useRef, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { AnimatePresence, motion } from "motion/react"
 import { PulseWave } from "@/components/PulseWave"
 import { SqiRing } from "@/components/SqiRing"
@@ -28,6 +28,21 @@ function Section({ children, delay = 0, className = "" }: { children: React.Reac
 /** Small functional field label — sentence case, ≥13px, not a decorative kicker. */
 function FieldLabel({ children }: { children: React.ReactNode }) {
   return <div className="text-[13px] font-medium text-[color:var(--color-ink-mute)]">{children}</div>
+}
+
+/** Live camera frame the video monitor writes to public/preview.jpg. Hides
+ *  itself if the file isn't there (monitor not running). */
+function CameraPreview({ ts }: { ts: number }) {
+  const [ok, setOk] = useState(true)
+  if (!ok) return null
+  return (
+    <img
+      src={`/preview.jpg?t=${ts}`}
+      alt="live camera"
+      onError={() => setOk(false)}
+      className="w-full rounded-md border border-[color:var(--color-hair)] object-cover"
+    />
+  )
 }
 
 /** The agentic-loop verdict — the pipeline's headline output. */
@@ -93,14 +108,44 @@ function FatigueBanner({ fatigue }: { fatigue: FatigueDecision }) {
 export default function App() {
   const [reading, setReading] = useState<Reading>(demoReading)
   const [isReal, setIsReal] = useState(false)
+  const [live, setLive] = useState(false)
+  const [previewTs, setPreviewTs] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const hr = useAnimatedNumber(reading.hr, { decimals: 1, duration: 1.4, delay: 0.4 })
+  const hr = useAnimatedNumber(reading.hr, {
+    decimals: 1,
+    duration: live ? 0.6 : 1.4,
+    delay: live ? 0 : 0.4,
+  })
 
   function apply(data: Reading) {
     setReading({ ...demoReading, ...data, hrv: { ...demoReading.hrv, ...data.hrv } })
     setIsReal(true)
   }
+
+  // Live mode: poll the reading.json the background monitor keeps rewriting.
+  useEffect(() => {
+    if (!live) return
+    let cancelled = false
+    const tick = async () => {
+      try {
+        const res = await fetch(`/reading.json?t=${Date.now()}`, { cache: "no-store" })
+        if (res.ok && !cancelled) {
+          apply((await res.json()) as Reading)
+          setPreviewTs(Date.now())
+        }
+      } catch {
+        /* keep last good reading */
+      }
+    }
+    tick()
+    const id = setInterval(tick, 2500)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live])
 
   async function loadPublicReading() {
     try {
@@ -150,9 +195,20 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-2.5">
-          <span className="font-mono rounded-md border border-[color:var(--color-hair)] bg-[color:var(--color-card)] px-3 py-2 text-[12px] text-[color:var(--color-ink-body)]">
-            {isReal ? "Real capture" : "Demo signal"}
+          <span className="font-mono flex items-center gap-1.5 rounded-md border border-[color:var(--color-hair)] bg-[color:var(--color-card)] px-3 py-2 text-[12px] text-[color:var(--color-ink-body)]">
+            {live && <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-rose-500" />}
+            {live ? "LIVE" : isReal ? "Real capture" : "Demo signal"}
           </span>
+          <button
+            onClick={() => setLive((v) => !v)}
+            className={`cursor-pointer rounded-md border px-3.5 py-2 text-[13px] font-medium transition ${
+              live
+                ? "border-rose-400 bg-rose-500 text-white hover:bg-rose-600"
+                : "border-[color:var(--color-hair-strong)] bg-[color:var(--color-card)] text-[color:var(--color-ink-body)] hover:border-[color:var(--color-ink-mute)]"
+            }`}
+          >
+            {live ? "■ Stop live" : "● Go live"}
+          </button>
           <button
             onClick={loadPublicReading}
             className="cursor-pointer rounded-md border border-[color:var(--color-pulse)] bg-[color:var(--color-pulse)] px-3.5 py-2 text-[13px] font-medium text-white transition hover:bg-[color:var(--color-pulse-deep)] hover:border-[color:var(--color-pulse-deep)]"
@@ -188,11 +244,20 @@ export default function App() {
               </span>
               <span className="font-mono text-[17px] text-[color:var(--color-ink-mute)]">bpm</span>
             </div>
-            <PulseWave data={reading.bvp} height={116} className="mt-1" />
+            <PulseWave data={reading.bvp} height={116} className="mt-1" live={live} />
           </div>
 
           {/* sibling column, divided by a hairline (not a card-in-card) */}
           <div className="flex flex-col items-center justify-center gap-4 border-t border-[color:var(--color-hair)] bg-[color:var(--color-card-2)] p-7 md:border-l md:border-t-0">
+            {live && (
+              <div className="w-full">
+                <div className="mb-1.5 flex items-center justify-between">
+                  <FieldLabel>Camera</FieldLabel>
+                  <span className="font-mono text-[11px] text-rose-500">● live</span>
+                </div>
+                <CameraPreview ts={previewTs} />
+              </div>
+            )}
             <FieldLabel>Signal quality</FieldLabel>
             <SqiRing sqi={reading.sqi} />
             <p className="max-w-[24ch] text-center text-[13px] leading-relaxed text-[color:var(--color-ink-mute)]">
@@ -204,11 +269,11 @@ export default function App() {
 
       {/* ── HRV / respiration metrics ──────────────────────── */}
       <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-5">
-        <StatTile label="Respiration" value={reading.br ?? reading.hrv.breathingrate} unit="/min" decimals={1} delay={0.24} hint="breathing rate" />
-        <StatTile label="SDNN" value={reading.hrv.sdnn} unit="ms" decimals={1} delay={0.29} hint="HRV spread" />
-        <StatTile label="RMSSD" value={reading.hrv.rmssd} unit="ms" decimals={1} delay={0.34} hint="beat-to-beat" />
-        <StatTile label="pNN50" value={reading.hrv.pnn50} unit="%" decimals={1} delay={0.39} hint="NN over 50ms" />
-        <StatTile label="LF / HF" value={reading.hrv.lf_hf} decimals={2} delay={0.44} hint="autonomic balance" />
+        <StatTile label="Respiration" value={reading.br ?? reading.hrv.breathingrate} unit="/min" decimals={1} delay={0.24} hint="breathing rate" live={live} />
+        <StatTile label="SDNN" value={reading.hrv.sdnn} unit="ms" decimals={1} delay={0.29} hint="HRV spread" live={live} />
+        <StatTile label="RMSSD" value={reading.hrv.rmssd} unit="ms" decimals={1} delay={0.34} hint="beat-to-beat" live={live} />
+        <StatTile label="pNN50" value={reading.hrv.pnn50} unit="%" decimals={1} delay={0.39} hint="NN over 50ms" live={live} />
+        <StatTile label="LF / HF" value={reading.hrv.lf_hf} decimals={2} delay={0.44} hint="autonomic balance" live={live} />
       </div>
 
       {/* ── voice-decoder leg (emotional state / fatigue markers) ── */}
@@ -228,12 +293,12 @@ export default function App() {
             </span>
           </div>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
-            <StatTile label="Arousal" value={reading.voice.arousal_index} decimals={2} delay={0.30} hint="low = fatigued" />
-            <StatTile label="Valence" value={reading.voice.valence ?? null} decimals={2} delay={0.33} hint="neg ↔ pos" />
-            <StatTile label="Fatigue (voice)" value={reading.voice.fatigue_index} decimals={2} delay={0.36} hint="vocal fatigue" />
-            <StatTile label="Speech rate" value={reading.voice.speech_rate_hz} unit="syl/s" decimals={1} delay={0.39} hint="tempo" />
-            <StatTile label="Pauses" value={reading.voice.pause_ratio} decimals={2} delay={0.42} hint="silence ratio" />
-            <StatTile label="Pitch F0" value={reading.voice.f0_mean_hz} unit="Hz" decimals={0} delay={0.45} hint="mean pitch" />
+            <StatTile label="Arousal" value={reading.voice.arousal_index} decimals={2} delay={0.30} hint="low = fatigued" live={live} />
+            <StatTile label="Valence" value={reading.voice.valence ?? null} decimals={2} delay={0.33} hint="neg ↔ pos" live={live} />
+            <StatTile label="Fatigue (voice)" value={reading.voice.fatigue_index} decimals={2} delay={0.36} hint="vocal fatigue" live={live} />
+            <StatTile label="Speech rate" value={reading.voice.speech_rate_hz} unit="syl/s" decimals={1} delay={0.39} hint="tempo" live={live} />
+            <StatTile label="Pauses" value={reading.voice.pause_ratio} decimals={2} delay={0.42} hint="silence ratio" live={live} />
+            <StatTile label="Pitch F0" value={reading.voice.f0_mean_hz} unit="Hz" decimals={0} delay={0.45} hint="mean pitch" live={live} />
           </div>
         </Section>
       )}

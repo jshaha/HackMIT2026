@@ -5,6 +5,7 @@ interface PulseWaveProps {
   data: number[]
   height?: number
   className?: string
+  live?: boolean
 }
 
 /**
@@ -12,7 +13,7 @@ interface PulseWaveProps {
  * draw-on reveal. No glow, no infinite sweep — motion is tied to the reveal,
  * not decorative.
  */
-export function PulseWave({ data, height = 128, className }: PulseWaveProps) {
+export function PulseWave({ data, height = 128, className, live = false }: PulseWaveProps) {
   const W = 1000
   const H = height
 
@@ -44,9 +45,9 @@ export function PulseWave({ data, height = 128, className }: PulseWaveProps) {
           strokeWidth="1.75"
           strokeLinecap="round"
           strokeLinejoin="round"
-          initial={{ pathLength: 0 }}
+          initial={live ? false : { pathLength: 0 }}
           animate={{ pathLength: 1 }}
-          transition={{ duration: 1.9, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: live ? 0 : 1.9, ease: [0.22, 1, 0.36, 1] }}
         />
       </svg>
     </div>

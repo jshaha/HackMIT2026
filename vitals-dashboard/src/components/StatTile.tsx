@@ -8,17 +8,24 @@ interface StatTileProps {
   decimals?: number
   delay?: number
   hint?: string
+  live?: boolean
 }
 
-export function StatTile({ label, value, unit, decimals = 0, delay = 0, hint }: StatTileProps) {
-  const animated = useAnimatedNumber(value ?? 0, { decimals, delay: delay + 0.15, duration: 1 })
+export function StatTile({ label, value, unit, decimals = 0, delay = 0, hint, live = false }: StatTileProps) {
+  // Live mode: tick smoothly to the new value with no entrance delay, so the
+  // tile updates in place instead of re-animating on every poll.
+  const animated = useAnimatedNumber(value ?? 0, {
+    decimals,
+    delay: live ? 0 : delay + 0.15,
+    duration: live ? 0.6 : 1,
+  })
 
   return (
     <motion.div
       className="card px-4 py-4"
-      initial={{ opacity: 0, y: 12 }}
+      initial={live ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+      transition={{ delay: live ? 0 : delay, duration: live ? 0 : 0.5, ease: [0.16, 1, 0.3, 1] }}
     >
       <div className="eyebrow">{label}</div>
       <div className="mt-2 flex items-baseline gap-1">
