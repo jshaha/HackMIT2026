@@ -8,7 +8,8 @@ three affect dimensions (each in [0,1]):
     valence  — negative (0) .. positive (1)
 
 Fully offline after the first download (~1.2 GB, cached in ~/.cache/huggingface).
-Runs in 'papagei_env' (torch + transformers + soundfile).
+Runs in 'papagei_env' (torch + transformers + soundfile). Uses the local GPU when
+available (Apple Silicon Metal/MPS, or CUDA), else CPU; override with SER_DEVICE=cpu.
 
     from voice_emotion import predict
     predict("voice.wav")  -> {"arousal":.., "dominance":.., "valence":..}
@@ -22,6 +23,20 @@ MODEL_NAME = "audeering/wav2vec2-large-robust-12-ft-emotion-msp-dim"
 
 _processor = None
 _model = None
+_device = None
+
+
+def _pick_device():
+    """Fastest available: Apple GPU (MPS) -> CUDA -> CPU. SER_DEVICE overrides."""
+    import os
+    forced = os.environ.get("SER_DEVICE")
+    if forced:
+        return torch.device(forced)
+    if torch.backends.mps.is_available():
+        return torch.device("mps")
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
 
 
 class _RegressionHead(nn.Module):
@@ -55,10 +70,11 @@ class EmotionModel(Wav2Vec2PreTrainedModel):
 
 
 def _load():
-    global _processor, _model
+    global _processor, _model, _device
     if _model is None:
+        _device = _pick_device()
         _processor = Wav2Vec2Processor.from_pretrained(MODEL_NAME)
-        _model = EmotionModel.from_pretrained(MODEL_NAME).eval()
+        _model = EmotionModel.from_pretrained(MODEL_NAME).eval().to(_device)
     return _processor, _model
 
 
@@ -74,8 +90,8 @@ def predict(sig, sr=16000):
     proc, model = _load()
     inputs = proc(sig, sampling_rate=16000, return_tensors="pt")
     with torch.no_grad():
-        _, logits = model(inputs.input_values)
-    a, d, v = logits[0].tolist()
+        _, logits = model(inputs.input_values.to(_device))
+    a, d, v = logits[0].cpu().tolist()
     return {"arousal": float(a), "dominance": float(d), "valence": float(v)}
 
 
