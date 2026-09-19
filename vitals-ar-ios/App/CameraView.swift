@@ -30,6 +30,8 @@ struct CameraView: UIViewRepresentable {
                 lastProjection = now
                 scene.reproject(self)
             }
+            // Live mode: stream the camera to the Mac pipeline (no-op unless the Mac is connected).
+            PhoneLink.shared.sendVideoFrame(frame.capturedImage, timestamp: frame.timestamp)
             guard !vision.busy else { return }
             let size = view.bounds.size
             let orientation = view.window?.windowScene?.interfaceOrientation ?? .landscapeRight

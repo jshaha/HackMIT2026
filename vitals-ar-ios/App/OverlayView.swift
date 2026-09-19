@@ -352,7 +352,7 @@ private struct StatusBar: View {
     private var status: (text: String, color: Color)? {
         switch connection {
         case .demo: return nil
-        case .connecting: return ("Connecting", Palette.amber)
+        case .connecting: return ("Waiting for Mac", Palette.amber)
         case .live: return ("Live", Palette.accent)
         case .offline: return ("Offline", Palette.danger)
         }

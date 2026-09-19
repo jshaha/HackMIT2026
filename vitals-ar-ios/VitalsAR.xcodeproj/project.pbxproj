@@ -10,6 +10,7 @@
 		173C6765EC36058FE2C0B29A /* VitalsARApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D22299A4E2D2B5B68EDA491 /* VitalsARApp.swift */; };
 		1ED3070D375FEE52848E2CEB /* SceneModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE1026B0C8787698090901E /* SceneModel.swift */; };
 		28722082B83500F59F6BF2D9 /* DemoVitalsSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE09EDADC93C6AA6902CD4D7 /* DemoVitalsSource.swift */; };
+		3875DDC036EDE098E39BC8FE /* PhoneLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F054CAF6EDE63B013A3748 /* PhoneLink.swift */; };
 		3DC2285C9060A48A5C1D383D /* Cards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71CE5DE6B15E642A3AFC977E /* Cards.swift */; };
 		4552F475C5CD404A8D87DD64 /* Vitals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27172515323D880E03322501 /* Vitals.swift */; };
 		4CCB85FC22998DB44733A612 /* VisionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDD4EFA884C75B41E121757D /* VisionTracker.swift */; };
@@ -36,6 +37,7 @@
 		AD314A2634973630DE40CF75 /* OverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayView.swift; sourceTree = "<group>"; };
 		AE09EDADC93C6AA6902CD4D7 /* DemoVitalsSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoVitalsSource.swift; sourceTree = "<group>"; };
 		BCE1026B0C8787698090901E /* SceneModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneModel.swift; sourceTree = "<group>"; };
+		D0F054CAF6EDE63B013A3748 /* PhoneLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneLink.swift; sourceTree = "<group>"; };
 		EDD4EFA884C75B41E121757D /* VisionTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionTracker.swift; sourceTree = "<group>"; };
 		F8D23AC00DA08BCEAA7849F7 /* VitalsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalsStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -66,6 +68,7 @@
 				5514F79AAAB2B28675D9FAD6 /* Info.plist */,
 				83BF23152FE5830AEEB18183 /* MicMeter.swift */,
 				AD314A2634973630DE40CF75 /* OverlayView.swift */,
+				D0F054CAF6EDE63B013A3748 /* PhoneLink.swift */,
 				6F7ACB54F28731892DE12E14 /* Projection.swift */,
 				BCE1026B0C8787698090901E /* SceneModel.swift */,
 				6FF17D965BE40F43E37E8102 /* Style.swift */,
@@ -142,6 +145,7 @@
 				28722082B83500F59F6BF2D9 /* DemoVitalsSource.swift in Sources */,
 				BD74413EE716AB82ECB64D02 /* MicMeter.swift in Sources */,
 				91085C74E9ECDEA884839A56 /* OverlayView.swift in Sources */,
+				3875DDC036EDE098E39BC8FE /* PhoneLink.swift in Sources */,
 				972E2AB7341413021A773891 /* Projection.swift in Sources */,
 				1ED3070D375FEE52848E2CEB /* SceneModel.swift in Sources */,
 				E71F32CC384167257E4252E5 /* Style.swift in Sources */,

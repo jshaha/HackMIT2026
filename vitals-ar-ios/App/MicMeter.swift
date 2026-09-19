@@ -1,7 +1,7 @@
 import AVFoundation
 import Combine
 
-/// Live microphone level for the "voice" input indicator.
+/// Live microphone level for the "voice" input indicator; in Live mode the audio also streams to the Mac.
 final class MicMeter: ObservableObject {
     @Published private(set) var level: Double = 0 // 0–1
     private let engine = AVAudioEngine()
@@ -21,6 +21,7 @@ final class MicMeter: ObservableObject {
         let format = input.outputFormat(forBus: 0)
         guard format.sampleRate > 0 else { return }
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { [weak self] buffer, _ in
+            PhoneLink.shared.sendAudio(buffer, timestamp: CACurrentMediaTime())
             guard let data = buffer.floatChannelData?[0] else { return }
             let n = Int(buffer.frameLength)
             var sum: Float = 0

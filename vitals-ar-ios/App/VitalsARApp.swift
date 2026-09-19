@@ -17,8 +17,8 @@ struct ContentView: View {
     @StateObject private var scene = SceneModel()
     @StateObject private var mic = MicMeter()
     @StateObject private var plan = VisitPlan()
-    @AppStorage("backendURL") private var backendURL = "ws://192.168.1.10:8765"
     @AppStorage("useBackend") private var useBackend = false
+    @AppStorage("allowWiFi") private var allowWiFi = false
     @State private var showSettings = false
     @State private var screen = CGSize(width: 844, height: 390)
     @State private var insets = EdgeInsets()
@@ -46,7 +46,7 @@ struct ContentView: View {
             mic.start()
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(backendURL: $backendURL, useBackend: $useBackend, connection: store.connection, plan: plan,
+            SettingsView(useBackend: $useBackend, allowWiFi: $allowWiFi, connection: store.connection, plan: plan,
                          resetPanels: { scene.resetOffsets() }) {
                 showSettings = false
                 connect()
@@ -67,13 +67,13 @@ struct ContentView: View {
     }
 
     private func connect() {
-        if useBackend, let url = URL(string: backendURL) { store.useBackend(url: url) } else { store.useDemo() }
+        if useBackend { store.useLive(allowWiFi: allowWiFi) } else { store.useDemo() }
     }
 }
 
 struct SettingsView: View {
-    @Binding var backendURL: String
     @Binding var useBackend: Bool
+    @Binding var allowWiFi: Bool
     let connection: VitalsStore.Connection
     @ObservedObject var plan: VisitPlan
     let resetPanels: () -> Void
@@ -98,19 +98,23 @@ struct SettingsView: View {
                         done()
                     }
                 }
-                Section("Data source") {
+                Section {
                     Picker("Data source", selection: $useBackend) {
                         Text("Demo data").tag(false)
-                        Text("Live backend").tag(true)
+                        Text("Live (Mac pipeline)").tag(true)
                     }
                     .pickerStyle(.segmented)
-                    TextField("ws://host:port", text: $backendURL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .keyboardType(.URL)
-                        .font(.mono(14))
-                    if case .offline(let reason) = connection {
-                        Text(reason).font(.footnote).foregroundStyle(Palette.danger)
+                    if useBackend {
+                        LabeledContent("Status", value: connection == .live ? "Mac connected" : "Waiting for Mac")
+                        Toggle("Allow Wi-Fi connections", isOn: $allowWiFi)
+                    }
+                } header: {
+                    Text("Data source")
+                } footer: {
+                    if useBackend {
+                        Text(allowWiFi
+                             ? "On the Mac: python monitor_phone.py --phone ws://\(PhoneLink.wifiAddress ?? "<phone-ip>"):8765"
+                             : "Plug this iPhone into the Mac with a cable, then on the Mac run: python monitor_phone.py. The camera and microphone stream to the Mac over USB.")
                     }
                 }
             }
