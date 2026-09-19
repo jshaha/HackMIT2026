@@ -1,0 +1,20 @@
+{
+  "duration_s": 13.2,
+  "sr": 16000,
+  "f0_mean_hz": 117.6,
+  "f0_std_hz": 33.9,
+  "jitter_pct": 6.35,
+  "shimmer_pct": 10.43,
+  "voiced_ratio": 0.657,
+  "pause_ratio": 0.23,
+  "speech_rate_hz": 4.38,
+  "rms_mean": 0.0161,
+  "rms_std": 0.0115,
+  "spectral_centroid_hz": 1541.0,
+  "arousal_index": 0.308,
+  "valence": 0.417,
+  "dominance": 0.389,
+  "emotion_source": "wav2vec2-msp-dim",
+  "emotional_state": "fatigued / low",
+  "fatigue_index": 0.572
+}

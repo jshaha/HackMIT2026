@@ -1,0 +1,27 @@
+# Patient health data — never commit the database
+*.db
+*.db-journal
+*.db-wal
+vitals.db
+
+# Secrets — API keys, never commit
+.env
+.env.*
+!.env.example
+
+# Captured media
+*.wav
+voice.wav
+
+# Third-party model repos (their own git clones + large weights) — clone separately
+open-rppg/
+papagei-foundation-model/
+
+# Python caches
+__pycache__/
+*.pyc
+.DS_Store
+
+# Node (belt-and-suspenders; vitals-dashboard/.gitignore also covers these)
+node_modules/
+dist/
