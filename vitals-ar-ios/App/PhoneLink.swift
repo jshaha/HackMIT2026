@@ -6,7 +6,9 @@ import AVFoundation
 /// The phone is the sensor: it listens on port 8765, and the Mac pipeline (monitor_phone.py) connects —
 /// over the USB cable via iproxy by default, so patient video never touches the network.
 /// On the one WebSocket, the phone streams its rear-camera frames and mic audio, and receives vitals back.
-///   phone → Mac  binary: "V" + float64 ts + JPEG,  "A" + float64 ts + PCM16 mono 16 kHz
+///   phone → Mac  binary: "F" + float64 ts + JPEG face crop (fixed 256×256, fed straight to rPPG),
+///                        "V" + float64 ts + JPEG whole frame (when no face; preview only),
+///                        "A" + float64 ts + PCM16 mono 16 kHz
 ///   Mac → phone  text:   one JSON `VitalsUpdate` per message
 final class PhoneLink {
     static let shared = PhoneLink()
@@ -29,6 +31,10 @@ final class PhoneLink {
     private var encoding = false
     private var lastFrameTime = 0.0
     static let frameWidth: CGFloat = 640, frameInterval = 1.0 / 30, jpegQuality: CGFloat = 0.9
+    /// With a tracked face we send a full-resolution crop around it instead: far more skin pixels for rPPG.
+    /// Tight on the skin and barely compressed: rPPG reads colour changes of well under 1%, so JPEG artefacts
+    /// and non-skin pixels (hair, background) both eat into the signal.
+    static let cropSize: CGFloat = 256, cropScale: CGFloat = 1.05, cropQuality: CGFloat = 0.99
 
     // Audio conversion to 16 kHz mono PCM16
     private var converter: AVAudioConverter?
@@ -46,8 +52,11 @@ final class PhoneLink {
         if !allowWiFi { params.requiredInterfaceType = .loopback }
         guard let l = try? NWListener(using: params, on: Self.port) else { return }
         l.newConnectionHandler = { [weak self] c in self?.accept(c) }
-        l.stateUpdateHandler = { state in
-            if case .failed(let e) = state { print("[link] listener failed: \(e)") }
+        l.stateUpdateHandler = { [weak self] state in
+            if case .failed(let e) = state {
+                print("[link] listener failed: \(e) — restarting")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { self?.start(allowWiFi: allowWiFi) }
+            }
         }
         listener = l
         l.start(queue: queue)
@@ -97,25 +106,42 @@ final class PhoneLink {
     // MARK: Streaming
 
     /// Call with each ARFrame's camera image (main thread). Throttled to 30 fps, encoded off the main thread,
-    /// dropped whenever the encoder or the link is behind so latency never builds up.
-    func sendVideoFrame(_ buffer: CVPixelBuffer, timestamp: Double) {
+    /// dropped whenever the encoder or the link is behind so latency never builds up. `faceBox` (Vision-normalized)
+    /// switches to a sharp full-resolution crop around the face; without one the whole frame is sent.
+    func sendVideoFrame(_ buffer: CVPixelBuffer, timestamp: Double, faceBox: CGRect? = nil) {
         guard isConnected, !encoding, timestamp - lastFrameTime >= Self.frameInterval * 0.9 else { return }
         lastFrameTime = timestamp
         encoding = true
         encodeQueue.async { [weak self] in
             guard let self else { return }
-            let image = CIImage(cvPixelBuffer: buffer)
-            let s = Self.frameWidth / image.extent.width
-            let scaled = image.transformed(by: CGAffineTransform(scaleX: s, y: s))
+            var image = CIImage(cvPixelBuffer: buffer)
+            var quality = Self.jpegQuality
+            var kind: UInt8 = 0x56 // "V": whole frame
+            let e = image.extent
+            if let box = faceBox {
+                // Fixed-size square around the face, shifted (not clipped) to stay inside the frame, so every crop
+                // has the same geometry. CIImage and Vision both use a bottom-left origin.
+                let side = min(max(box.width * e.width, box.height * e.height) * Self.cropScale, e.height)
+                let x = min(max(box.midX * e.width - side / 2, 0), e.width - side)
+                let y = min(max(box.midY * e.height - side / 2, 0), e.height - side)
+                let s = Self.cropSize / side
+                image = image.cropped(to: CGRect(x: x, y: y, width: side, height: side))
+                    .transformed(by: CGAffineTransform(translationX: -x, y: -y).concatenating(CGAffineTransform(scaleX: s, y: s)))
+                quality = Self.cropQuality
+                kind = 0x46 // "F": face crop
+            } else {
+                let s = Self.frameWidth / e.width
+                image = image.transformed(by: CGAffineTransform(scaleX: s, y: s))
+            }
             let jpeg = self.ciContext.jpegRepresentation(
-                of: scaled, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
-                options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): Self.jpegQuality])
+                of: image, colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+                options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): quality])
             DispatchQueue.main.async { self.encoding = false }
             guard let jpeg else { return }
             self.queue.async {
                 guard self.pendingVideo < 3 else { return } // link congested: drop this frame
                 self.pendingVideo += 1
-                self.send(kind: 0x56, timestamp: timestamp, payload: jpeg) { self.pendingVideo -= 1 }
+                self.send(kind: kind, timestamp: timestamp, payload: jpeg) { self.pendingVideo -= 1 }
             }
         }
     }

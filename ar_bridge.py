@@ -4,7 +4,8 @@ AR bridge — the link between this Mac's pipeline and the Vitals AR iPhone app.
 The app listens on the phone (port 8765); this side connects to it, over the USB
 cable by default (iproxy / usbmux, so no network or Mac camera permissions are
 involved) or to the phone's Wi-Fi address. On that one WebSocket:
-  phone -> Mac  binary frames: b"V" + float64 ts + JPEG   (rear-camera video)
+  phone -> Mac  binary frames: b"F" + float64 ts + JPEG   (face crop from the phone's tracker)
+                               b"V" + float64 ts + JPEG   (whole frame, sent when no face is tracked)
                                b"A" + float64 ts + PCM16  (16 kHz mono mic audio)
   Mac -> phone  text: one JSON vitals update per message (see AR_HANDOFF.md)
 
@@ -177,8 +178,8 @@ class PhoneLink:
                         if isinstance(msg, (bytes, bytearray)) and len(msg) > 9:
                             kind, ts = msg[:1], struct.unpack("<d", msg[1:9])[0]
                             payload = memoryview(msg)[9:]
-                            if kind == b"V" and self.on_video:
-                                self.on_video(ts, payload)
+                            if kind in (b"F", b"V") and self.on_video:
+                                self.on_video(ts, payload, kind == b"F")
                             elif kind == b"A" and self.on_audio:
                                 self.on_audio(ts, payload)
             except (OSError, asyncio.TimeoutError, websockets.exceptions.WebSocketException) as e:

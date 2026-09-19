@@ -20,6 +20,7 @@ struct ContentView: View {
     @AppStorage("useBackend") private var useBackend = false
     @AppStorage("allowWiFi") private var allowWiFi = false
     @State private var showSettings = false
+    @Environment(\.scenePhase) private var scenePhase
     @State private var screen = CGSize(width: 844, height: 390)
     @State private var insets = EdgeInsets()
 
@@ -41,7 +42,16 @@ struct ContentView: View {
                 .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0; updateDesign() }
         )
         .onChange(of: store.agenda) { _, items in if let items { plan.syncAgenda(items) } }
+        .onChange(of: scenePhase) { _, phase in
+            // iOS tears down the phone link's listener in the background; bring it back when we return.
+            if phase == .active && useBackend { connect() }
+        }
         .onAppear {
+            UIApplication.shared.isIdleTimerDisabled = true // an AR display shouldn't auto-lock mid-visit
+            // `-useBackend YES` at launch (e.g. from devicectl) sticks for later launches too.
+            if let i = CommandLine.arguments.firstIndex(of: "-useBackend"), i + 1 < CommandLine.arguments.count {
+                UserDefaults.standard.set(CommandLine.arguments[i + 1] == "YES", forKey: "useBackend")
+            }
             connect()
             mic.start()
         }

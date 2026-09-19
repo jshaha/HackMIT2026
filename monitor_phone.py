@@ -29,7 +29,7 @@ import soundfile as sf
 
 import ar_bridge
 from fatigue_agent import decide, fuse, llm_refine
-from monitor_video import UPDATE_EVERY, VOICE_STALE, WARMUP, WINDOW, _atomic_write, compute_reading
+from monitor_video import UPDATE_EVERY, VOICE_STALE, WARMUP, WINDOW, VitalsSmoother, _atomic_write, compute_reading
 from voice_decoder import extract
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -76,20 +76,27 @@ class PhonePipeline:
         self.frames = 0
         self.frame_times = []
         self.audio.clear()
+        self.smoother = VitalsSmoother()
         print("[phone] new session — hold the patient's face in view; vitals start after "
               f"~{WARMUP:.0f} s", flush=True)
 
     # ---- streams from the phone ----
-    def on_video(self, ts, jpeg):
+    def on_video(self, ts, jpeg, is_face):
+        """Face crops (the phone already tracks the face) go straight to open-rppg's face input, skipping its own
+        detector/tracker, which assumes a fixed camera frame. Whole frames (no face in view) only feed the preview."""
         if self.model is None:
             return
-        img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
-        if img is None:
-            return
-        self.model.update_frame(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), ts)  # open-rppg wants RGB
-        self.frames += 1
+        if is_face:
+            img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
+            if img is None:
+                return
+            self.model.update_face(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), ts)  # open-rppg wants RGB
+            self.frames += 1
         now = time.time()
-        self.frame_times = [t for t in self.frame_times if now - t < 2] + [now]
+        if is_face:
+            self.frame_times = [t for t in self.frame_times if now - t < 2] + [now]
+        else:
+            self.frame_times = [t for t in self.frame_times if now - t < 2]
         if self.args.preview and now - self.last_preview > 0.3:  # dashboard camera preview
             self.last_preview = now
             try:
@@ -133,6 +140,7 @@ class PhonePipeline:
     # ---- fusion loop ----
     async def run(self, link):
         last_llm = 0.0
+        last_elapsed = -1.0
         stop_steps = asyncio.Event()
         while True:
             await asyncio.sleep(UPDATE_EVERY)
@@ -141,14 +149,19 @@ class PhonePipeline:
                 continue
             fps = len(self.frame_times) / 2.0
             elapsed = m.now
+            if elapsed == last_elapsed:  # no new face frames since the last update
+                print(f"[phone] no face in view — waiting (face video {fps:4.1f} fps)", flush=True)
+                continue
+            last_elapsed = elapsed
             if elapsed < WARMUP:
-                print(f"[phone] warming up — {elapsed:4.1f}s of signal, video {fps:4.1f} fps", flush=True)
+                print(f"[phone] warming up — {elapsed:4.1f}s of signal, face video {fps:4.1f} fps", flush=True)
                 continue
             reading = compute_reading(m, max(0.0, elapsed - WINDOW), min(elapsed, WINDOW),
                                       "iPhone (Vitals AR) · live")
             if reading is None:
-                print(f"[phone] no stable pulse yet (face in view?) — video {fps:4.1f} fps", flush=True)
+                print(f"[phone] no stable pulse yet (face in view?) — face video {fps:4.1f} fps", flush=True)
                 continue
+            self.smoother.update(reading)
 
             voice = self.voice if self.voice and time.time() - self.voice["captured_at"] < VOICE_STALE else None
             score, factors, sqi = fuse(reading, voice)
@@ -173,8 +186,8 @@ class PhonePipeline:
             asyncio.create_task(ar_bridge.step_agent(link, stop_steps))
 
             tf = {True: "TOO FATIGUED", False: "ok", None: "?"}[verdict.get("too_fatigued")]
-            print(f"[{elapsed:6.1f}s] HR {reading['hr']:5.1f}  BR {reading['br']}  SQI {reading['sqi']:.2f}  "
-                  f"fatigue {verdict.get('fatigue_score')} [{tf}]  video {fps:4.1f} fps  "
+            print(f"[{elapsed:6.1f}s] HR {reading['hr']:5.1f} (raw {reading['hr_raw']:5.1f})  BR {reading['br']}  SQI {reading['sqi']:.2f}  "
+                  f"fatigue {verdict.get('fatigue_score')} [{tf}]  face video {fps:4.1f} fps  "
                   f"voice: {(voice or {}).get('emotional_state', 'none')}", flush=True)
 
 

@@ -67,6 +67,74 @@ def _load_voice(path):
         return None
 
 
+class VitalsSmoother:
+    """Steadies the per-update HR / BR shown to clinicians and fed to the fatigue agent.
+
+    Raw rPPG estimates jump between updates, especially at low signal quality, and often
+    lock onto a harmonic of the pulse (e.g. 66 -> 137 or 66 -> 35 BPM). So each reading is:
+      1. harmonic-corrected against the plausible range: sub-40 values are doubled, and a
+         low-SQI value ~2x the current HR (or above 150) is halved when that lands in range;
+      2. pooled over the last WINDOW_S seconds as an SQI-weighted median (noisy readings
+         barely count; one outlier can't move it);
+      3. eased toward that median so the number glides instead of jumping.
+    The raw values are kept on the reading as hr_raw / br_raw.
+    """
+    WINDOW_S = 20.0
+    EASE = 0.35
+    HR_MIN = 42.0  # below this a resting rPPG estimate is almost surely a sub-harmonic
+
+    def __init__(self):
+        self.hr, self.br = [], []   # (t, value, weight)
+        self.hr_out = self.br_out = None
+
+    @staticmethod
+    def _wmedian(samples):
+        pts = sorted((v, w) for _, v, w in samples)
+        half, acc = sum(w for _, w in pts) / 2, 0.0
+        for v, w in pts:
+            acc += w
+            if acc >= half:
+                return v
+        return pts[-1][0]
+
+    def _push(self, buf, t, value, weight):
+        buf.append((t, value, weight))
+        while buf and t - buf[0][0] > self.WINDOW_S:
+            buf.pop(0)
+
+    def update(self, reading, t=None):
+        t = time.time() if t is None else t
+        sqi = reading.get("sqi") or 0.0
+        weight = max(0.05, sqi) ** 2
+        hr = reading.get("hr")
+        if hr is not None:
+            reading["hr_raw"] = hr
+            if hr < self.HR_MIN:
+                hr *= 2  # sub-harmonic lock
+            elif sqi < 0.5 and hr / 2 >= self.HR_MIN and (
+                    hr > 150 or (self.hr_out and 1.75 < hr / self.hr_out < 2.25)):
+                hr /= 2  # 2nd-harmonic lock
+            if not (self.HR_MIN <= hr <= 180):
+                hr = None
+        if hr is not None:
+            self._push(self.hr, t, hr, weight)
+            med = self._wmedian(self.hr)
+            self.hr_out = med if self.hr_out is None else self.hr_out + (med - self.hr_out) * self.EASE
+            reading["hr"] = round(self.hr_out, 1)
+        elif self.hr_out is not None:
+            reading["hr"] = round(self.hr_out, 1)
+        br = reading.get("br")
+        if br is not None:
+            reading["br_raw"] = br
+            self._push(self.br, t, br, weight)
+            med = self._wmedian(self.br)
+            self.br_out = med if self.br_out is None else self.br_out + (med - self.br_out) * self.EASE
+            reading["br"] = round(self.br_out, 1)
+            if reading.get("hrv"):
+                reading["hrv"]["breathingrate"] = reading["br"]
+        return reading
+
+
 def compute_reading(model, start, duration, source):
     """Vitals over the trailing window [start, now] of an open-rppg model, as a reading dict
     (the dashboard's Reading shape, minus voice/fatigue), or None if there's no usable pulse yet.
@@ -136,6 +204,7 @@ def main():
     last_update = 0.0
     last_llm = 0.0
     last_preview = 0.0
+    smoother = VitalsSmoother()
 
     with model.video_capture(args.camera):
         for frame, box in model.preview:
@@ -157,6 +226,7 @@ def main():
             reading = compute_reading(model, max(0.0, elapsed - WINDOW), min(elapsed, WINDOW), args.source)
             if reading is None:
                 continue
+            smoother.update(reading)
 
             # fuse with the latest fresh voice reading (may be None)
             voice = _load_voice(args.voice)

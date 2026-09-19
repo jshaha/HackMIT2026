@@ -15,6 +15,9 @@ struct CameraView: UIViewRepresentable {
         private let smoother = TrackSmoother()
         private var lastProjection = 0.0
         private var faceSeenSince: Double?
+        /// Smoothed face box (Vision-normalized, bottom-left origin) for streaming a steady face crop.
+        private var faceBox: CGRect?
+        private var faceBoxTime = 0.0
 
         init(scene: SceneModel) { self.scene = scene }
 
@@ -31,7 +34,8 @@ struct CameraView: UIViewRepresentable {
                 scene.reproject(self)
             }
             // Live mode: stream the camera to the Mac pipeline (no-op unless the Mac is connected).
-            PhoneLink.shared.sendVideoFrame(frame.capturedImage, timestamp: frame.timestamp)
+            PhoneLink.shared.sendVideoFrame(frame.capturedImage, timestamp: frame.timestamp,
+                                             faceBox: now - faceBoxTime < 1.0 ? faceBox : nil)
             guard !vision.busy else { return }
             let size = view.bounds.size
             let orientation = view.window?.windowScene?.interfaceOrientation ?? .landscapeRight
@@ -50,6 +54,15 @@ struct CameraView: UIViewRepresentable {
 
                 // Track the head in 3D; anchor the panels around it once the face has been steady for a moment.
                 if let f = result.face {
+                    let b = f.boundingBox
+                    if let old = self.faceBox {
+                        let k: CGFloat = 0.25 // steady crop: jitter in the crop is noise in the pulse signal
+                        self.faceBox = CGRect(x: old.minX + (b.minX - old.minX) * k, y: old.minY + (b.minY - old.minY) * k,
+                                              width: old.width + (b.width - old.width) * k, height: old.height + (b.height - old.height) * k)
+                    } else {
+                        self.faceBox = b
+                    }
+                    self.faceBoxTime = now
                     let head = Self.headPosition(f, intrinsics: intrinsics, camera: cameraTransform, imageSize: imageSize)
                     if let prev = self.scene.headWorld { self.scene.headWorld = prev + (head - prev) * 0.3 } else { self.scene.headWorld = head }
                     self.faceSeenSince = self.faceSeenSince ?? now
@@ -86,10 +99,23 @@ struct CameraView: UIViewRepresentable {
         let config = ARWorldTrackingConfiguration()
         config.worldAlignment = .gravity
         view.session.run(config)
+        Self.lockExposureForRPPG()
         return view
     }
 
     func updateUIView(_ uiView: ARView, context: Context) {}
+
+    /// rPPG reads tiny skin-colour changes; auto exposure / white balance drift swamps them. Once the camera has
+    /// settled on the scene, lock both (ARKit exposes the capture device for this on iOS 16+).
+    static func lockExposureForRPPG() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            guard let device = ARWorldTrackingConfiguration.configurableCaptureDeviceForPrimaryCamera,
+                  (try? device.lockForConfiguration()) != nil else { return }
+            if device.isExposureModeSupported(.locked) { device.exposureMode = .locked }
+            if device.isWhiteBalanceModeSupported(.locked) { device.whiteBalanceMode = .locked }
+            device.unlockForConfiguration()
+        }
+    }
 }
 
 /// Simulator stand-in: a virtual camera drifting around a patient silhouette, so the 3D panels, face outline
