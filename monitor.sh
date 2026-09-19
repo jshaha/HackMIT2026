@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Real-time background monitoring: continuous video vitals + opportunistic voice.
-# Writes vitals-dashboard/public/reading.json live; the dashboard polls it, and the
-# AR bridge streams it to the Vitals AR iPhone app (ws://<this Mac>:8765).
+# Writes vitals-dashboard/public/reading.json live; the dashboard polls it.
 #
-#   ./monitor.sh            # start both monitors in the background
-#   ./monitor.sh --stop     # stop them
+#   ./monitor.sh --phone    # the Vitals AR iPhone app is the camera + mic (over USB);
+#                           #   vitals stream back to the phone. No Mac camera/mic used.
+#   ./monitor.sh            # Mac camera + mic monitors, forwarded to the phone by the AR bridge
+#   ./monitor.sh --stop     # stop everything
 #   ./monitor.sh --status   # show whether they're running + tail logs
 #
-# Logs: logs/monitor_video.log, logs/monitor_voice.log, logs/ar_bridge.log
+# Logs: logs/monitor_phone.log | logs/monitor_video.log, logs/monitor_voice.log, logs/ar_bridge.log
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,6 +32,8 @@ stop() {
   pkill -f monitor_video.py 2>/dev/null || true
   pkill -f monitor_voice.py 2>/dev/null || true
   pkill -f ar_bridge.py 2>/dev/null || true
+  pkill -f monitor_phone.py 2>/dev/null || true
+  pkill -f "iproxy 18765" 2>/dev/null || true
 }
 
 status() {
@@ -42,6 +45,7 @@ status() {
   echo "--- video log (tail) ---"; tail -5 "$LOGDIR/monitor_video.log" 2>/dev/null || true
   echo "--- voice log (tail) ---"; tail -5 "$LOGDIR/monitor_voice.log" 2>/dev/null || true
   echo "--- AR bridge log (tail) ---"; tail -5 "$LOGDIR/ar_bridge.log" 2>/dev/null || true
+  echo "--- phone monitor log (tail) ---"; tail -5 "$LOGDIR/monitor_phone.log" 2>/dev/null || true
 }
 
 case "${1:-start}" in
@@ -58,6 +62,19 @@ for c in "${CONDA_SH:-}" /opt/miniconda3 /opt/homebrew/anaconda3 /opt/anaconda3 
 done
 set +u  # conda's (de)activate hooks reference unset variables
 
+if [ "${1:-}" = "--phone" ]; then
+  echo "▶ starting phone monitor (Vitals AR app over USB, patient ${PATIENT:-P001}) ..."
+  ( conda activate papagei_env
+    exec python -u "$HERE/monitor_phone.py" --patient "${PATIENT:-P001}"
+  ) >"$LOGDIR/monitor_phone.log" 2>&1 &
+  echo $! >> "$PIDFILE"
+  echo ""
+  echo "✅ live. Plug in the iPhone, open Vitals AR → ⚙︎ → Live (Mac pipeline)."
+  echo "   Models warm up for ~25 s first.  tail -f $LOGDIR/monitor_phone.log"
+  echo "   stop with: ./monitor.sh --stop"
+  exit 0
+fi
+
 echo "▶ starting video monitor (camera $CAMERA) ..."
 ( conda activate rppg
   OPENCV_AVFOUNDATION_SKIP_AUTH=1 exec python -u "$HERE/monitor_video.py" --camera "$CAMERA" \
@@ -72,7 +89,7 @@ echo "▶ starting voice monitor (mic $MIC) ..."
 ) >"$LOGDIR/monitor_voice.log" 2>&1 &
 echo $! >> "$PIDFILE"
 
-echo "▶ starting AR bridge (patient ${PATIENT:-P001}) ..."
+echo "▶ starting AR bridge → phone over USB (patient ${PATIENT:-P001}) ..."
 ( conda activate papagei_env
   exec python -u "$HERE/ar_bridge.py" --patient "${PATIENT:-P001}"
 ) >"$LOGDIR/ar_bridge.log" 2>&1 &
@@ -81,6 +98,6 @@ echo $! >> "$PIDFILE"
 echo ""
 echo "✅ live. PIDs: $(tr '\n' ' ' < "$PIDFILE")"
 echo "   reading.json is updating ~every 2s; open the dashboard and toggle LIVE."
-sleep 1; grep -m3 "ws://" "$LOGDIR/ar_bridge.log" 2>/dev/null | sed 's/^ */   iPhone app → /' || true
+echo "   iPhone: plug in, open Vitals AR → ⚙︎ → Live (Mac pipeline)."
 echo "   tail -f $LOGDIR/monitor_video.log"
 echo "   stop with: ./monitor.sh --stop"

@@ -12,4 +12,5 @@ conda env list | grep -q "^rppg " || conda create -y -q -n rppg python=3.11
 conda env list | grep -q "^papagei_env " || conda create -y -q -n papagei_env python=3.11
 conda run -n rppg pip install -q -r "$HERE/requirements-rppg.txt"
 conda run -n papagei_env pip install -q -r "$HERE/requirements-voice.txt"
+command -v iproxy >/dev/null || { command -v brew >/dev/null && brew install -q libimobiledevice || echo "⚠ install libimobiledevice for iproxy (USB link to the phone)"; }
 echo "✅ envs ready. The voice model (~1.2 GB) downloads on first use."

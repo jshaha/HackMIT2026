@@ -1,32 +1,36 @@
 """
-AR bridge — streams the live pipeline to the Vitals AR iPhone app.
+AR bridge — the link between this Mac's pipeline and the Vitals AR iPhone app.
 
-Watches the reading.json that monitor_video.py rewrites every ~2 s (heart leg +
-fused voice leg + fatigue verdict) and pushes it over a WebSocket in the app's
-contract (see AR_HANDOFF.md). Also pulls the patient's doctor's notes from
-db.py so the overlay can show context and the visit's agenda.
+The app listens on the phone (port 8765); this side connects to it, over the USB
+cable by default (iproxy / usbmux, so no network or Mac camera permissions are
+involved) or to the phone's Wi-Fi address. On that one WebSocket:
+  phone -> Mac  binary frames: b"V" + float64 ts + JPEG   (rear-camera video)
+                               b"A" + float64 ts + PCM16  (16 kHz mono mic audio)
+  Mac -> phone  text: one JSON vitals update per message (see AR_HANDOFF.md)
 
-Stdlib only (hand-rolled WebSocket server, no new deps). Run in any env:
-    python ar_bridge.py                      # ws://0.0.0.0:8765, patient P001
-    PATIENT=P002 python ar_bridge.py --port 9000
-In the app: ⚙︎ → Live backend → ws://<this Mac's IP>:8765
+monitor_phone.py runs the full pipeline on those streams. This file also works
+standalone for the Mac-camera setup (monitor.sh): it forwards each new
+reading.json to the phone.
+    python ar_bridge.py                          # over USB, patient P001
+    python ar_bridge.py --phone ws://<phone-ip>:8765
 """
 import argparse
 import asyncio
-import base64
-import hashlib
+import atexit
 import json
 import os
-import socket
+import shutil
 import struct
+import subprocess
 import time
 
 import db
 from fatigue_agent import THRESHOLD
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 AGENT_STEPS = ("observe", "reason", "classify", "report")
+APP_PORT = 8765          # the app listens here on the phone
+USB_LOCAL_PORT = 18765   # iproxy forwards this Mac port to APP_PORT on the phone
 
 
 # ------------------------------------------------------------- translation ---
@@ -123,138 +127,119 @@ def to_update(reading, notes=None):
     return u
 
 
-# ----------------------------------------------------------- tiny WebSocket ---
-async def _handshake(reader, writer):
-    request = (await reader.readuntil(b"\r\n\r\n")).decode(errors="replace")
-    key = next((ln.split(":", 1)[1].strip() for ln in request.split("\r\n")
-                if ln.lower().startswith("sec-websocket-key:")), None)
-    if not key:
-        writer.write(b"HTTP/1.1 400 Bad Request\r\n\r\n")
-        await writer.drain()
-        return False
-    accept = base64.b64encode(hashlib.sha1((key + WS_GUID).encode()).digest()).decode()
-    writer.write(("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-                  f"Sec-WebSocket-Accept: {accept}\r\n\r\n").encode())
-    await writer.drain()
-    return True
-
-
-def _frame(text):
-    data = text.encode()
-    n = len(data)
-    head = bytes([0x81]) + (bytes([n]) if n < 126 else
-                            bytes([126]) + struct.pack(">H", n) if n < 65536 else
-                            bytes([127]) + struct.pack(">Q", n))
-    return head + data
-
-
-async def _drain_incoming(reader):
-    """Read (and discard) client frames until the client closes."""
-    while True:
-        hdr = await reader.readexactly(2)
-        op, n = hdr[0] & 0x0F, hdr[1] & 0x7F
-        if n == 126:
-            n = struct.unpack(">H", await reader.readexactly(2))[0]
-        elif n == 127:
-            n = struct.unpack(">Q", await reader.readexactly(8))[0]
-        if hdr[1] & 0x80:
-            await reader.readexactly(4)
-        await reader.readexactly(n)
-        if op == 0x8:
-            return
-
-
-class Bridge:
-    def __init__(self, reading_path, patient):
-        self.reading_path = reading_path
-        self.patient = patient
-        self.clients = set()
-        self.latest = None
-        self.step = 0
-
-    def notes(self):
-        try:
-            p = db.get_patient(self.patient)
-            return db.get_doctor_notes(p["id"]) if p else []
-        except Exception:
-            return []  # no DB yet: fine, just no chart context
-
-    async def handle(self, reader, writer):
-        try:
-            if not await _handshake(reader, writer):
-                return
-            self.clients.add(writer)
-            print(f"[bridge] app connected ({len(self.clients)} client(s))", flush=True)
-            if self.latest:
-                writer.write(_frame(json.dumps(self.latest)))
-                await writer.drain()
-            await _drain_incoming(reader)
-        except (asyncio.IncompleteReadError, ConnectionError):
-            pass
-        finally:
-            self.clients.discard(writer)
-            writer.close()
-            print(f"[bridge] app disconnected ({len(self.clients)} client(s))", flush=True)
-
-    async def broadcast(self, update):
-        msg = _frame(json.dumps(update))
-        for w in list(self.clients):
-            try:
-                w.write(msg)
-                await w.drain()
-            except ConnectionError:
-                self.clients.discard(w)
-
-    async def watch(self):
-        """Push each new reading; between readings, walk the agent-loop steps so the app shows it working."""
-        mtime = 0.0
-        while True:
-            try:
-                m = os.path.getmtime(self.reading_path)
-                if m != mtime:
-                    mtime = m
-                    with open(self.reading_path) as f:
-                        reading = json.load(f)
-                    self.latest = to_update(reading, self.notes())
-                    self.latest.setdefault("context", {})["agent_step"] = "report"
-                    self.step = 0
-                    await self.broadcast(self.latest)
-                elif self.latest is not None and self.step < len(AGENT_STEPS):
-                    # observe -> reason -> classify -> report while the next reading is being computed,
-                    # resting on "report" if the monitor pauses
-                    await self.broadcast({"context": {"agent_step": AGENT_STEPS[self.step]}})
-                    self.step += 1
-            except (FileNotFoundError, json.JSONDecodeError):
-                pass  # monitor not started yet / mid-write
-            await asyncio.sleep(0.5)
-
-
-def _lan_ips():
-    ips = set()
+# ------------------------------------------------------------- phone link ---
+def patient_notes(patient):
+    """The patient's doctor's notes from db.py ([] if there's no DB or patient yet)."""
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ips.add(s.getsockname()[0])
-        s.close()
-    except OSError:
-        pass
-    return sorted(ips) or ["127.0.0.1"]
+        p = db.get_patient(patient)
+        return db.get_doctor_notes(p["id"]) if p else []
+    except Exception:
+        return []
+
+
+class PhoneLink:
+    """WebSocket client to the Vitals AR app (which listens on the phone). Reconnects forever.
+
+    url=None -> over USB: runs `iproxy USB_LOCAL_PORT:APP_PORT` and connects to localhost.
+    """
+
+    def __init__(self, url=None, on_video=None, on_audio=None, on_connect=None):
+        self.url = url
+        self.on_video, self.on_audio, self.on_connect = on_video, on_audio, on_connect
+        self.ws = None
+        self._iproxy = None
+
+    def _ensure_usb_tunnel(self):
+        if self._iproxy and self._iproxy.poll() is None:
+            return
+        if not shutil.which("iproxy"):
+            raise SystemExit("iproxy not found: brew install libimobiledevice (or pass --phone ws://<phone-ip>:8765)")
+        self._iproxy = subprocess.Popen(["iproxy", f"{USB_LOCAL_PORT}:{APP_PORT}"],
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        atexit.register(self._iproxy.terminate)
+        time.sleep(0.5)
+
+    async def run(self):
+        import websockets
+        target = self.url or f"ws://127.0.0.1:{USB_LOCAL_PORT}"
+        waiting_logged = False
+        while True:
+            if self.url is None:
+                self._ensure_usb_tunnel()
+            try:
+                async with websockets.connect(target, max_size=None, ping_interval=10, open_timeout=3) as ws:
+                    self.ws = ws
+                    waiting_logged = False
+                    print(f"[link] connected to the phone ({'USB' if self.url is None else target})", flush=True)
+                    if self.on_connect:
+                        self.on_connect()
+                    async for msg in ws:
+                        if isinstance(msg, (bytes, bytearray)) and len(msg) > 9:
+                            kind, ts = msg[:1], struct.unpack("<d", msg[1:9])[0]
+                            payload = memoryview(msg)[9:]
+                            if kind == b"V" and self.on_video:
+                                self.on_video(ts, payload)
+                            elif kind == b"A" and self.on_audio:
+                                self.on_audio(ts, payload)
+            except (OSError, asyncio.TimeoutError, websockets.exceptions.WebSocketException) as e:
+                if not waiting_logged:
+                    print(f"[link] waiting for the Vitals AR app on {'USB' if self.url is None else target} "
+                          f"(open the app, Live mode) — {type(e).__name__}", flush=True)
+                    waiting_logged = True
+            finally:
+                if self.ws is not None:
+                    print("[link] phone disconnected", flush=True)
+                self.ws = None
+            await asyncio.sleep(1)
+
+    async def send(self, update):
+        if self.ws is None:
+            return
+        try:
+            await self.ws.send(json.dumps(update))
+        except Exception:
+            pass
+
+
+async def step_agent(link, stop):
+    """Walk the agent-loop indicator (observe -> reason -> classify -> report) between updates."""
+    for step in AGENT_STEPS:
+        if stop.is_set():
+            return
+        await link.send({"context": {"agent_step": step}})
+        await asyncio.sleep(0.45)
+
+
+async def forward_readings(link, reading_path, patient):
+    """Mac-camera mode: push each new reading.json (from monitor.sh) to the phone."""
+    mtime, stop = 0.0, asyncio.Event()
+    while True:
+        try:
+            m = os.path.getmtime(reading_path)
+            if m != mtime:
+                mtime = m
+                with open(reading_path) as f:
+                    update = to_update(json.load(f), patient_notes(patient))
+                update.setdefault("context", {})["agent_step"] = "report"
+                await link.send(update)
+                stop.set()
+                stop = asyncio.Event()
+                asyncio.create_task(step_agent(link, stop))
+        except (FileNotFoundError, json.JSONDecodeError):
+            pass  # monitor not started yet / mid-write
+        await asyncio.sleep(0.5)
 
 
 async def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", type=int, default=int(os.environ.get("AR_PORT", 8765)))
+    ap.add_argument("--phone", default=None, help="ws://<phone-ip>:8765 (default: over USB)")
     ap.add_argument("--reading", default=os.path.join(HERE, "vitals-dashboard/public/reading.json"))
     ap.add_argument("--patient", default=os.environ.get("PATIENT", "P001"))
     args = ap.parse_args()
 
-    bridge = Bridge(args.reading, args.patient)
-    server = await asyncio.start_server(bridge.handle, "0.0.0.0", args.port)
-    print(f"[bridge] streaming {args.reading} (patient {args.patient}). In the app, connect to:")
-    for ip in _lan_ips():
-        print(f"           ws://{ip}:{args.port}")
-    async with server:
-        await asyncio.gather(server.serve_forever(), bridge.watch())
+    link = PhoneLink(args.phone)
+    print(f"[bridge] forwarding {args.reading} (patient {args.patient}) to the phone", flush=True)
+    await asyncio.gather(link.run(), forward_readings(link, args.reading, args.patient))
 
 
 if __name__ == "__main__":

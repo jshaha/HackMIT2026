@@ -67,6 +67,54 @@ def _load_voice(path):
         return None
 
 
+def compute_reading(model, start, duration, source):
+    """Vitals over the trailing window [start, now] of an open-rppg model, as a reading dict
+    (the dashboard's Reading shape, minus voice/fatigue), or None if there's no usable pulse yet.
+    Shared by this monitor (Mac camera) and monitor_phone.py (frames streamed from the iPhone)."""
+    from datetime import datetime, timezone
+    res = model.hr(start=start, end=None) or {}
+    hr, sqi = res.get("hr"), res.get("SQI")
+    hrv = res.get("hrv") or {}
+    bvp, ts = model.bvp(start=start, end=None)
+    bvp = np.asarray(bvp, dtype=float)
+    if hr is None or bvp.size < model.fps * 4:
+        return None
+
+    fs = float(model.fps)
+    # open-rppg reports breathingrate in Hz; convert to breaths/min.
+    br = hrv.get("breathingrate")
+    if br is not None and br < 2:
+        br = br * 60.0
+    if br is None:
+        br = _breathing_rate(bvp, fs)
+
+    # downsample waveform for the UI
+    if bvp.size > MAX_BVP:
+        idx = np.linspace(0, bvp.size - 1, MAX_BVP).astype(int)
+        wave = bvp[idx]
+    else:
+        wave = bvp
+    wave = (wave / (np.max(np.abs(wave)) + 1e-9)).round(4).tolist()
+
+    return {
+        "source": source,
+        "captured_at": datetime.now(timezone.utc).isoformat(),
+        "duration_s": round(duration, 1),
+        "fs": fs,
+        "hr": round(float(hr), 1),
+        "br": _num(br),
+        "sqi": round(float(sqi if sqi is not None else 0.0), 3),
+        "hrv": {
+            "sdnn": _num(hrv.get("sdnn")),
+            "rmssd": _num(hrv.get("rmssd")),
+            "pnn50": _num(hrv.get("pnn50")),
+            "lf_hf": _num(hrv.get("LF/HF") or hrv.get("lf_hf")),
+            "breathingrate": _num(br),
+        },
+        "bvp": wave,
+    }
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--camera", type=int, default=1)
@@ -88,7 +136,6 @@ def main():
     last_update = 0.0
     last_llm = 0.0
     last_preview = 0.0
-    from datetime import datetime, timezone
 
     with model.video_capture(args.camera):
         for frame, box in model.preview:
@@ -107,48 +154,9 @@ def main():
                 continue
             last_update = elapsed
 
-            start = max(0.0, elapsed - WINDOW)
-            res = model.hr(start=start, end=None) or {}
-            hr, sqi = res.get("hr"), res.get("SQI")
-            hrv = res.get("hrv") or {}
-            bvp, ts = model.bvp(start=start, end=None)
-            bvp = np.asarray(bvp, dtype=float)
-            if hr is None or bvp.size < model.fps * 4:
+            reading = compute_reading(model, max(0.0, elapsed - WINDOW), min(elapsed, WINDOW), args.source)
+            if reading is None:
                 continue
-
-            fs = float(model.fps)
-            # open-rppg reports breathingrate in Hz; convert to breaths/min.
-            br = hrv.get("breathingrate")
-            if br is not None and br < 2:
-                br = br * 60.0
-            if br is None:
-                br = _breathing_rate(bvp, fs)
-
-            # downsample waveform for the UI
-            if bvp.size > MAX_BVP:
-                idx = np.linspace(0, bvp.size - 1, MAX_BVP).astype(int)
-                wave = bvp[idx]
-            else:
-                wave = bvp
-            wave = (wave / (np.max(np.abs(wave)) + 1e-9)).round(4).tolist()
-
-            reading = {
-                "source": args.source,
-                "captured_at": datetime.now(timezone.utc).isoformat(),
-                "duration_s": round(min(elapsed, WINDOW), 1),
-                "fs": fs,
-                "hr": round(float(hr), 1),
-                "br": _num(br),
-                "sqi": round(float(sqi if sqi is not None else 0.0), 3),
-                "hrv": {
-                    "sdnn": _num(hrv.get("sdnn")),
-                    "rmssd": _num(hrv.get("rmssd")),
-                    "pnn50": _num(hrv.get("pnn50")),
-                    "lf_hf": _num(hrv.get("LF/HF") or hrv.get("lf_hf")),
-                    "breathingrate": _num(br),
-                },
-                "bvp": wave,
-            }
 
             # fuse with the latest fresh voice reading (may be None)
             voice = _load_voice(args.voice)

@@ -1,6 +1,10 @@
-# 'papagei_env': voice leg (monitor_voice.py, voice_decoder.py), fatigue agent, AR bridge
+# 'papagei_env': voice leg (monitor_voice.py, voice_decoder.py), fatigue agent, AR bridge,
+# and monitor_phone.py (which also runs open-rppg on frames streamed from the iPhone)
 torch>=2.2        # uses Apple GPU (MPS) / CUDA automatically for the SER model
 transformers<5    # voice_emotion.py's custom head relies on the 4.x loading API
 soundfile
 scipy
 numpy
+websockets        # phone link (ar_bridge.py)
+open-rppg==0.1.1
+setuptools<81     # open-rppg imports pkg_resources, removed in setuptools 81

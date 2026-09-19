@@ -6,24 +6,33 @@ threshold and verdict, **emotional state** (from the voice leg, explained with t
 **context analysis** (the agentic loop's reasoning). A left panel holds the **visit**: time left and topics to
 cover, checked off by **pinching in the scene** (pinch-and-hold then move to rearrange any panel).
 
+The **iPhone is the sensor**: the app streams its rear-camera frames and mic audio to the Mac over the USB
+cable, the Mac runs the pipeline, and the vitals come back to the phone on the same connection. No Mac camera
+or microphone is used, so no macOS privacy permissions are involved, and no network is needed.
+
 ```
-video → open-rppg ─┐
-voice → SER (GPU) ─┼→ fatigue_agent → reading.json → ar_bridge.py ──ws──▶ Vitals AR (iPhone)
-db.py doctor notes ┘                                  (+ chart context, visit agenda)
+iPhone (Vitals AR) ── USB (iproxy) ──▶ monitor_phone.py
+  camera 640×480 JPEG @30fps ─────────▶ open-rppg (FacePhys) ──▶ HR / BR / HRV ─┐
+  mic 16 kHz PCM ─────────────────────▶ voice_decoder + SER (Apple GPU) ─────────┼▶ fatigue_agent
+  ◀──────── vitals JSON (+ chart context, visit agenda from db.py) ──────────────┘   → reading.json too
 ```
 
 ## Run it
 
 ```bash
-./setup_envs.sh          # once: creates 'rppg' + 'papagei_env' conda envs
-./monitor.sh             # video + voice monitors + AR bridge; prints ws://<this Mac>:8765
+./setup_envs.sh          # once: 'rppg' + 'papagei_env' conda envs, iproxy (libimobiledevice)
+./monitor.sh --phone     # models warm up ~25 s, then waits for the phone
 ./monitor.sh --stop
 ```
-In the app: ⚙︎ → **Live backend** → `ws://<this Mac's IP>:8765` → Connect. Phone and Mac on the same Wi-Fi.
-With no backend the app runs a scripted **Demo** patient (also the stage fallback).
+On the iPhone (plugged into the Mac): Vitals AR → ⚙︎ → **Live (Mac pipeline)**. The status pill turns **Live**
+when the Mac connects; vitals appear ~10 s after a face is in view (0.5–1 m, good light).
+`tail -f logs/monitor_phone.log` shows HR / signal quality / fps every 2 s.
 
-Camera/mic: macOS must allow the terminal app you launch `monitor.sh` from (System Settings → Privacy &
-Security → Camera / Microphone). `CAMERA=` / `MIC=` pick devices (`ffmpeg -f avfoundation -list_devices true -i ""`).
+- **Over Wi-Fi instead of USB:** turn on "Allow Wi-Fi connections" in the app (it shows the phone's address),
+  then `python monitor_phone.py --phone ws://<phone-ip>:8765`. By default the app only accepts the USB link.
+- **Mac-camera setup (original):** `./monitor.sh` runs the Mac camera/mic monitors, and `ar_bridge.py`
+  forwards each `reading.json` to the phone. That path needs macOS Camera/Microphone permission.
+- **No backend at all:** the app's **Demo data** mode is a scripted patient (stage fallback).
 
 ## Performance (M1 Pro)
 | Stage | Device | Cost | Real-time headroom |
@@ -35,14 +44,14 @@ Security → Camera / Microphone). `CAMERA=` / `MIC=` pick devices (`ffmpeg -f a
 `voice_emotion.py` now picks MPS → CUDA → CPU automatically (`SER_DEVICE=cpu` to force). The rPPG nets are
 too small to benefit from GPU dispatch, so they stay on CPU.
 
-## Bridge: `ar_bridge.py`
-Stdlib only (hand-rolled WebSocket). Watches `vitals-dashboard/public/reading.json` (written by
-`monitor_video.py` every ~2 s) and pushes one JSON message per update; between updates it steps the agent
-loop indicator (observe → reason → classify → report).
-
-```bash
-python ar_bridge.py [--port 8765] [--patient P001] [--reading path/to/reading.json]
-```
+## Link + translation: `ar_bridge.py`
+The app listens on the phone (port 8765); `PhoneLink` connects to it over USB (runs `iproxy 18765:8765`) or
+`--phone ws://…`, and reconnects forever. Phone → Mac binary frames: `V` + float64 ts + JPEG,
+`A` + float64 ts + PCM16 16 kHz mono. Mac → phone: one JSON vitals update per message (below); between
+updates it steps the agent-loop indicator (observe → reason → classify → report).
+`monitor_phone.py` reuses `monitor_video.compute_reading` (same vitals code as the Mac-camera path), warms
+both models before streaming so JIT/model loading never stalls the live loop, and writes `reading.json` /
+`decision.json` / `voice_features.json` as before, so the dashboard and `db.py` keep working.
 
 Mapping from the pipeline:
 - `hr.bpm` ← `reading.hr` (`confidence` ← `sqi`) · `br.rpm` ← `reading.br` · `hrv` ← `reading.hrv.rmssd/sdnn`
