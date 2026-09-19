@@ -1,0 +1,6 @@
+# 'papagei_env': voice leg (monitor_voice.py, voice_decoder.py), fatigue agent, AR bridge
+torch>=2.2        # uses Apple GPU (MPS) / CUDA automatically for the SER model
+transformers<5    # voice_emotion.py's custom head relies on the 4.x loading API
+soundfile
+scipy
+numpy
