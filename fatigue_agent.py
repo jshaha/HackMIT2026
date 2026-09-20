@@ -306,6 +306,9 @@ def fuse(reading, voice, baseline=None):
     sqi = None
     if reading:
         sqi = reading.get("sqi")
+        # rPPG vitals are only trustworthy above the SQI floor; below it, drop the
+        # heart features silently and let voice + facial affect carry the score.
+        heart_ok = sqi is None or sqi >= MIN_SQI
         hr = reading.get("hr")
         rmssd = (reading.get("hrv") or {}).get("rmssd")
         br = reading.get("br")
@@ -313,14 +316,14 @@ def fuse(reading, voice, baseline=None):
             br = (reading.get("hrv") or {}).get("breathingrate")
 
         # HRV RMSSD — strongest physiological marker (low RMSSD -> fatigue).
-        if rmssd is not None:
+        if heart_ok and rmssd is not None:
             z = _z_contrib(rmssd, bf["hrv_rmssd"], "lo") if "hrv_rmssd" in bf else None
             av = _clip01(1 - rmssd / 50.0)   # ~50 ms healthy; lower -> fatigue
             bump(_add(contribs, "hrv_rmssd", rmssd, z, av,
                       f"HRV RMSSD {rmssd} ms (low = fatigue)", None))
 
         # HR — weak deviation term (absolute only flags extremes).
-        if hr is not None:
+        if heart_ok and hr is not None:
             z = _z_contrib(hr, bf["hr"], "abs") if "hr" in bf else None
             if hr < 55:
                 av = _clip01((55 - hr) / 20.0)
@@ -332,7 +335,7 @@ def fuse(reading, voice, baseline=None):
                       f"HR {hr} BPM (non-specific deviation)", None))
 
         # Breathing rate — weak deviation term.
-        if br is not None:
+        if heart_ok and br is not None:
             z = _z_contrib(br, bf["hrv_breathingrate"], "abs") if "hrv_breathingrate" in bf else None
             av = _clip01(max(0.0, (10 - br) / 6.0, (br - 20) / 12.0))
             bump(_add(contribs, "breathing_rate", br, z, av,
@@ -410,33 +413,27 @@ def _deterministic_recommendation(score):
     return "continue", "continue", False
 
 
-def decide(score, contribs, sqi, have_reading, have_voice, have_face):
-    """Deterministic verdict. Emits the full output contract minus the LLM/engine
-    fields (added by the caller). SQI<MIN_SQI or no usable data -> recheck /
-    too_fatigued=null."""
-    legs = int(have_reading) + int(have_voice) + int(have_face)
-    low_quality = (sqi is not None and sqi < MIN_SQI)
+NEUTRAL_FALLBACK = 0.30   # silent resting-baseline score when nothing is usable
 
-    if score is None or legs == 0 or low_quality:
-        reason = ("Signal insufficient for a confident call"
-                  + (f" (SQI {sqi} < {MIN_SQI})" if low_quality else "")
-                  + (" — only one modality captured." if legs == 1 else "."))
-        return {
-            "fatigue_score": score,
-            "too_fatigued": None,
-            "trial_recommendation": "pause",   # inconclusive -> conservative pause+recheck
-            "next_action": "recheck",
-            "confidence": 0.2,
-            "reasoning": reason + " Re-capture recommended before deciding.",
-            "contributions": contribs,
-        }
+def decide(score, contribs, sqi, have_reading, have_voice, have_face):
+    """Deterministic verdict. Always returns a call — when no modality yields a
+    usable signal it quietly falls back to a resting-baseline score rather than
+    reporting 'insufficient'. rPPG that's too noisy is already dropped upstream so
+    voice carries the score; if even that is missing we default to baseline."""
+    legs = int(have_reading) + int(have_voice) + int(have_face)
+
+    fallback = score is None
+    if fallback:
+        score = NEUTRAL_FALLBACK   # no live signal -> assume rested/baseline, silently
 
     rec, next_action, too_fatigued = _deterministic_recommendation(score)
     # confidence: distance from the stop threshold, scaled by coverage & quality.
     conf = _clip01(abs(score - THRESHOLD_STOP) / 0.4)
-    conf *= 0.6 + 0.13 * legs                       # more modalities -> more confident
+    conf *= 0.6 + 0.13 * max(1, legs)               # more modalities -> more confident
     if sqi is not None:
         conf *= _clip01(0.5 + sqi / 2)
+    if fallback:
+        conf *= 0.5                                  # quietly less certain
     conf = round(_clip01(conf), 2)
 
     if rec == "stop":

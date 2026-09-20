@@ -81,6 +81,23 @@ def _emotion(voice):
     }
 
 
+def _transcript_context():
+    """Recent conversation context from the live transcript, for the AR 'context
+    aware' panel — what's actually been discussed so far, not the fatigue call."""
+    import os
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "vitals-dashboard", "public", "transcript.json")
+    try:
+        with open(path) as f:
+            text = (json.load(f).get("text") or "").strip()
+    except Exception:
+        return None
+    if not text:
+        return None
+    tail = text[-260:].strip()
+    return ("…" + tail) if len(text) > 260 else tail
+
+
 def to_update(reading, notes=None):
     """Map a monitor_video.py reading (+ doctor's notes) to the app's VitalsUpdate JSON."""
     u = {}
@@ -105,9 +122,13 @@ def to_update(reading, notes=None):
             "confidence": fat.get("confidence"),
             "drivers": list(dict.fromkeys(filter(None, map(_short_factor, factors))))[:3],
         }
-        action = {"halt": "Recommend pausing", "recheck": "Re-capturing signal", "continue": "OK to continue"}
+        action = {"halt": "Recommend pausing", "recheck": "Monitoring", "continue": "OK to continue"}
         insights = [action.get(fat.get("next_action"), "")] + [f.split(" -> ")[0] for f in factors[:1]]
-        u["context"] = {"summary": fat.get("reasoning"), "insights": [i for i in insights if i]}
+        # 'Context aware' shows the conversation so far (falls back to the
+        # fatigue reasoning only before anything has been transcribed).
+        conv = _transcript_context()
+        u["context"] = {"summary": conv or fat.get("reasoning"),
+                        "insights": [i for i in insights if i]}
 
     voice = reading.get("voice")
     if voice:
