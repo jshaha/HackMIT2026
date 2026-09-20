@@ -50,13 +50,28 @@ def _f0_autocorr(frame, sr, fmin=70.0, fmax=350.0):
     return float(sr / lag)
 
 
-def extract(wav_path):
+def extract(wav_path, isolate=True):
     sig, sr = sf.read(wav_path)
     if sig.ndim > 1:
         sig = sig.mean(axis=1)
     sig = sig.astype(np.float64)
-    dur = len(sig) / sr
 
+    # Keep analysis on the patient's voice: VAD-clean noise/silence, and (if a
+    # patient is enrolled) reject clips that aren't them. Degrades gracefully.
+    iso_info = {}
+    if isolate:
+        try:
+            from voice_isolation import isolate as _isolate
+            speech, iso_info = _isolate(sig, sr)
+            if speech is None:
+                raise SystemExit(iso_info.get("reason", "rejected by voice isolation"))
+            sig = np.asarray(speech, dtype=np.float64)
+        except SystemExit:
+            raise
+        except Exception as e:
+            print(f"[voice] isolation unavailable ({e}); analyzing raw audio.")
+
+    dur = len(sig) / sr
     flen, hop = int(0.025 * sr), int(0.010 * sr)  # 25 ms / 10 ms
     frames = _frame(sig, flen, hop)
     if len(frames) < 5:
@@ -128,6 +143,10 @@ def extract(wav_path):
     feats["emotion_source"] = src
     feats["emotional_state"] = _state_label(emo["arousal"], emo["valence"])
     feats["fatigue_index"] = round(_fatigue(feats), 3)
+    if iso_info:
+        feats["speech_s"] = iso_info.get("speech_s")
+        feats["speaker_similarity"] = iso_info.get("speaker_similarity")
+        feats["is_patient"] = iso_info.get("is_patient")
     return feats
 
 

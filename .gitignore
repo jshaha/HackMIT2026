@@ -35,3 +35,7 @@ vitals-dashboard/public/preview.jpg
 vitals-dashboard/public/reading.json
 decision.json
 voice_features.json
+
+# Patient voice print (biometric)
+patient_voice.npy
+enroll.wav

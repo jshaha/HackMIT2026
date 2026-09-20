@@ -62,21 +62,34 @@ def _load():
     return _processor, _model
 
 
-def predict(sig, sr=16000):
-    """sig: path to a wav, or a float mono array. Returns dim scores in [0,1]."""
+def _forward(sig, sr):
     if isinstance(sig, str):
         import soundfile as sf
         sig, sr = sf.read(sig)
     sig = np.asarray(sig, dtype=np.float32)
     if sig.ndim > 1:
         sig = sig.mean(axis=1)
-
     proc, model = _load()
     inputs = proc(sig, sampling_rate=16000, return_tensors="pt")
     with torch.no_grad():
-        _, logits = model(inputs.input_values)
-    a, d, v = logits[0].tolist()
+        hidden, logits = model(inputs.input_values)
+    return hidden[0], logits[0]
+
+
+def predict(sig, sr=16000):
+    """sig: path to a wav, or a float mono array. Returns dim scores in [0,1]."""
+    _, logits = _forward(sig, sr)
+    a, d, v = logits.tolist()
     return {"arousal": float(a), "dominance": float(d), "valence": float(v)}
+
+
+def embed_speaker(sig, sr=16000):
+    """Pooled wav2vec2 hidden state as a speaker embedding (L2-normalized).
+    wav2vec2 representations encode voice identity strongly, so cosine distance
+    between two clips separates speakers well — no extra model needed."""
+    hidden, _ = _forward(sig, sr)
+    e = hidden.numpy().astype(np.float32)
+    return e / (np.linalg.norm(e) + 1e-9)
 
 
 if __name__ == "__main__":

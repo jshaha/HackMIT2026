@@ -85,6 +85,9 @@ export const demoReading: Reading = {
     emotional_state: "engaged / positive",
     emotion_source: "wav2vec2-msp-dim",
     fatigue_index: 0.29,
+    speech_s: 9.7,
+    speaker_similarity: 0.94,
+    is_patient: true,
   },
   fatigue: {
     too_fatigued: false,

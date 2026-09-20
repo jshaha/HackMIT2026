@@ -27,6 +27,9 @@ export interface VoiceFeatures {
   emotional_state?: string // e.g. "fatigued / low"
   emotion_source?: string  // "wav2vec2-msp-dim" | "acoustic-proxy"
   fatigue_index: number   // 0..1 derived
+  speech_s?: number | null          // seconds of speech kept after VAD
+  speaker_similarity?: number | null // cosine to enrolled patient (0..1)
+  is_patient?: boolean | null        // matched the enrolled patient?
 }
 
 // Agentic-loop output (see fatigue_agent.py).

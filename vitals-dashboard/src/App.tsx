@@ -288,9 +288,23 @@ export default function App() {
                 </span>
               )}
             </div>
-            <span className="font-mono text-[12px] text-[color:var(--color-ink-mute)]">
-              {reading.voice.emotion_source ?? "voice"} · {reading.voice.duration_s}s @ {(reading.voice.sr / 1000).toFixed(0)} kHz
-            </span>
+            <div className="flex items-center gap-2">
+              {reading.voice.is_patient != null && (
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                    reading.voice.is_patient
+                      ? "bg-emerald-50 text-emerald-700"
+                      : "bg-amber-50 text-amber-700"
+                  }`}
+                  title={reading.voice.speaker_similarity != null ? `speaker match ${reading.voice.speaker_similarity}` : undefined}
+                >
+                  {reading.voice.is_patient ? "✓ patient voice" : "⚠ unverified speaker"}
+                </span>
+              )}
+              <span className="font-mono text-[12px] text-[color:var(--color-ink-mute)]">
+                {reading.voice.emotion_source ?? "voice"} · {reading.voice.duration_s}s @ {(reading.voice.sr / 1000).toFixed(0)} kHz
+              </span>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-4 md:grid-cols-6">
             <StatTile label="Arousal" value={reading.voice.arousal_index} decimals={2} delay={0.30} hint="low = fatigued" live={live} />
