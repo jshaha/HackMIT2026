@@ -1,0 +1,37 @@
+name: VitalsAR
+options:
+  bundleIdPrefix: com.mihirsharma
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    SWIFT_STRICT_CONCURRENCY: minimal
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: HR7GGACVZV
+targets:
+  VitalsAR:
+    type: application
+    platform: iOS
+    sources: [App]
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: Vitals AR
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        NSCameraUsageDescription: Vitals AR tracks the patient's face with the camera to anchor the vitals overlay.
+        NSMicrophoneUsageDescription: Vitals AR listens for speech to show the voice input level.
+        NSLocalNetworkUsageDescription: Vitals AR connects to your vitals backend on the local network.
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        UIRequiredDeviceCapabilities: [arkit]
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationLandscapeRight]
+        UIRequiresFullScreen: true
+        UIStatusBarHidden: true
+        UILaunchScreen: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.mihirsharma.vitalsar
+        TARGETED_DEVICE_FAMILY: "1"

@@ -1,0 +1,344 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		173C6765EC36058FE2C0B29A /* VitalsARApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9D22299A4E2D2B5B68EDA491 /* VitalsARApp.swift */; };
+		1ED3070D375FEE52848E2CEB /* SceneModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCE1026B0C8787698090901E /* SceneModel.swift */; };
+		28722082B83500F59F6BF2D9 /* DemoVitalsSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = AE09EDADC93C6AA6902CD4D7 /* DemoVitalsSource.swift */; };
+		3875DDC036EDE098E39BC8FE /* PhoneLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0F054CAF6EDE63B013A3748 /* PhoneLink.swift */; };
+		3DC2285C9060A48A5C1D383D /* Cards.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71CE5DE6B15E642A3AFC977E /* Cards.swift */; };
+		4552F475C5CD404A8D87DD64 /* Vitals.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27172515323D880E03322501 /* Vitals.swift */; };
+		4CCB85FC22998DB44733A612 /* VisionTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDD4EFA884C75B41E121757D /* VisionTracker.swift */; };
+		80D4589D6D40C16C998C52A8 /* VisitPlan.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4627FD2818E3A670F541B6EF /* VisitPlan.swift */; };
+		91085C74E9ECDEA884839A56 /* OverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD314A2634973630DE40CF75 /* OverlayView.swift */; };
+		95B0887FAF419E64A2F1D00D /* VitalsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8D23AC00DA08BCEAA7849F7 /* VitalsStore.swift */; };
+		972E2AB7341413021A773891 /* Projection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F7ACB54F28731892DE12E14 /* Projection.swift */; };
+		B05272AEB62785EE97276653 /* CameraView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A930BF57E000B0A59C7DAB79 /* CameraView.swift */; };
+		BD74413EE716AB82ECB64D02 /* MicMeter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 83BF23152FE5830AEEB18183 /* MicMeter.swift */; };
+		E71F32CC384167257E4252E5 /* Style.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6FF17D965BE40F43E37E8102 /* Style.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		27172515323D880E03322501 /* Vitals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Vitals.swift; sourceTree = "<group>"; };
+		325EAD385B3185D3E302748B /* VitalsAR.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = VitalsAR.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		4627FD2818E3A670F541B6EF /* VisitPlan.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitPlan.swift; sourceTree = "<group>"; };
+		5514F79AAAB2B28675D9FAD6 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		6F7ACB54F28731892DE12E14 /* Projection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Projection.swift; sourceTree = "<group>"; };
+		6FF17D965BE40F43E37E8102 /* Style.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Style.swift; sourceTree = "<group>"; };
+		71CE5DE6B15E642A3AFC977E /* Cards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Cards.swift; sourceTree = "<group>"; };
+		83BF23152FE5830AEEB18183 /* MicMeter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicMeter.swift; sourceTree = "<group>"; };
+		9D22299A4E2D2B5B68EDA491 /* VitalsARApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalsARApp.swift; sourceTree = "<group>"; };
+		A930BF57E000B0A59C7DAB79 /* CameraView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraView.swift; sourceTree = "<group>"; };
+		AD314A2634973630DE40CF75 /* OverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverlayView.swift; sourceTree = "<group>"; };
+		AE09EDADC93C6AA6902CD4D7 /* DemoVitalsSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DemoVitalsSource.swift; sourceTree = "<group>"; };
+		BCE1026B0C8787698090901E /* SceneModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneModel.swift; sourceTree = "<group>"; };
+		D0F054CAF6EDE63B013A3748 /* PhoneLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhoneLink.swift; sourceTree = "<group>"; };
+		EDD4EFA884C75B41E121757D /* VisionTracker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionTracker.swift; sourceTree = "<group>"; };
+		F8D23AC00DA08BCEAA7849F7 /* VitalsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VitalsStore.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		5B5A7B9F7DD1C9BA4028CD08 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				325EAD385B3185D3E302748B /* VitalsAR.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		8FAD475F08BE0C161FBFF0DB = {
+			isa = PBXGroup;
+			children = (
+				AED7CDF319844A9AFBF56880 /* App */,
+				5B5A7B9F7DD1C9BA4028CD08 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AED7CDF319844A9AFBF56880 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A930BF57E000B0A59C7DAB79 /* CameraView.swift */,
+				71CE5DE6B15E642A3AFC977E /* Cards.swift */,
+				AE09EDADC93C6AA6902CD4D7 /* DemoVitalsSource.swift */,
+				5514F79AAAB2B28675D9FAD6 /* Info.plist */,
+				83BF23152FE5830AEEB18183 /* MicMeter.swift */,
+				AD314A2634973630DE40CF75 /* OverlayView.swift */,
+				D0F054CAF6EDE63B013A3748 /* PhoneLink.swift */,
+				6F7ACB54F28731892DE12E14 /* Projection.swift */,
+				BCE1026B0C8787698090901E /* SceneModel.swift */,
+				6FF17D965BE40F43E37E8102 /* Style.swift */,
+				EDD4EFA884C75B41E121757D /* VisionTracker.swift */,
+				4627FD2818E3A670F541B6EF /* VisitPlan.swift */,
+				27172515323D880E03322501 /* Vitals.swift */,
+				9D22299A4E2D2B5B68EDA491 /* VitalsARApp.swift */,
+				F8D23AC00DA08BCEAA7849F7 /* VitalsStore.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		CB459BB0F9D6D74AAD6C416B /* VitalsAR */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F462AE9E83D530D0BBAF0EDA /* Build configuration list for PBXNativeTarget "VitalsAR" */;
+			buildPhases = (
+				43B04DA9EA32AE6EC0AC3BDB /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = VitalsAR;
+			packageProductDependencies = (
+			);
+			productName = VitalsAR;
+			productReference = 325EAD385B3185D3E302748B /* VitalsAR.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		0F21363BAB2553D14F7E2321 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					CB459BB0F9D6D74AAD6C416B = {
+						DevelopmentTeam = HR7GGACVZV;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 789BA7EAECB1F6C90CF0BFE9 /* Build configuration list for PBXProject "VitalsAR" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 8FAD475F08BE0C161FBFF0DB;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 5B5A7B9F7DD1C9BA4028CD08 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				CB459BB0F9D6D74AAD6C416B /* VitalsAR */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		43B04DA9EA32AE6EC0AC3BDB /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B05272AEB62785EE97276653 /* CameraView.swift in Sources */,
+				3DC2285C9060A48A5C1D383D /* Cards.swift in Sources */,
+				28722082B83500F59F6BF2D9 /* DemoVitalsSource.swift in Sources */,
+				BD74413EE716AB82ECB64D02 /* MicMeter.swift in Sources */,
+				91085C74E9ECDEA884839A56 /* OverlayView.swift in Sources */,
+				3875DDC036EDE098E39BC8FE /* PhoneLink.swift in Sources */,
+				972E2AB7341413021A773891 /* Projection.swift in Sources */,
+				1ED3070D375FEE52848E2CEB /* SceneModel.swift in Sources */,
+				E71F32CC384167257E4252E5 /* Style.swift in Sources */,
+				4CCB85FC22998DB44733A612 /* VisionTracker.swift in Sources */,
+				80D4589D6D40C16C998C52A8 /* VisitPlan.swift in Sources */,
+				4552F475C5CD404A8D87DD64 /* Vitals.swift in Sources */,
+				173C6765EC36058FE2C0B29A /* VitalsARApp.swift in Sources */,
+				95B0887FAF419E64A2F1D00D /* VitalsStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		47DDBF58C5EE4074C0FA235F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.mihirsharma.vitalsar;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+		84B2C126774394512B8B902E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = HR7GGACVZV;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		CE86D6BE0FED72C4E7CE47FD /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				INFOPLIST_FILE = App/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.mihirsharma.vitalsar;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		FF1963EBEA8DEF23AFC5519A /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = HR7GGACVZV;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		789BA7EAECB1F6C90CF0BFE9 /* Build configuration list for PBXProject "VitalsAR" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				84B2C126774394512B8B902E /* Debug */,
+				FF1963EBEA8DEF23AFC5519A /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		F462AE9E83D530D0BBAF0EDA /* Build configuration list for PBXNativeTarget "VitalsAR" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CE86D6BE0FED72C4E7CE47FD /* Debug */,
+				47DDBF58C5EE4074C0FA235F /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 0F21363BAB2553D14F7E2321 /* Project object */;
+}

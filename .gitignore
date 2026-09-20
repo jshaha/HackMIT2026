@@ -39,3 +39,8 @@ voice_features.json
 # Patient voice print (biometric)
 patient_voice.npy
 enroll.wav
+
+# iOS app build output
+vitals-ar-ios/build/
+xcuserdata/
+*.xcuserstate

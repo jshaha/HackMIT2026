@@ -45,7 +45,11 @@ case "$MODE" in
 esac
 
 echo "▶ [3/3] Agentic fatigue loop"
-source /opt/miniconda3/etc/profile.d/conda.sh
+# Find conda wherever it's installed (Miniconda, Anaconda, Homebrew); override with CONDA_SH=...
+for c in "${CONDA_SH:-}" /opt/miniconda3 /opt/homebrew/anaconda3 /opt/anaconda3 "$HOME/miniconda3" "$HOME/anaconda3"; do
+  [ -n "$c" ] && [ -f "${c%/etc/profile.d/conda.sh}/etc/profile.d/conda.sh" ] && { source "${c%/etc/profile.d/conda.sh}/etc/profile.d/conda.sh"; break; }
+done
+set +u  # conda's (de)activate hooks reference unset variables
 conda activate papagei_env
 READING_JSON="$HERE/vitals-dashboard/public/reading.json"
 python -u "$HERE/fatigue_agent.py" \
