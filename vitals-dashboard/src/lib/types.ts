@@ -106,6 +106,124 @@ export interface Reading {
   }
 }
 
+// ── Clinical-trial (Veeva/EDC) layer — see VEEVA_CONTRACT.md ──────────────
+
+// One eCRF field with ALCOA provenance. Guard every field with null checks.
+export interface CrfField {
+  id: string
+  label: string
+  type: string // "number" | "text" | "datetime" | "enum" | "bool" | ...
+  value?: string | number | boolean | null
+  status: "empty" | "draft" | "confirmed"
+  required?: boolean
+  source?: string | null       // e.g. "contactless-rppg" | "fatigue-model" | "transcript-extraction"
+  captured_at?: string | null  // ISO
+  confidence?: number | null   // 0..1
+  signer?: string | null
+  signed_at?: string | null
+}
+
+// One eCRF form instance (edc_forms.json -> forms[]).
+export interface CrfForm {
+  form: string   // "VS" | "AE" | "CM" | "PRO" | "IC" | "PE"
+  name: string
+  subject?: string
+  visit?: string
+  status: "empty" | "draft" | "confirmed"
+  fields: CrfField[]
+}
+
+// public/edc_forms.json
+export interface EdcForms {
+  study: string
+  subject: string
+  visit: string
+  updated_at: number
+  forms: CrfForm[]
+}
+
+// One Schedule-of-Activities row (soa_state.json -> activities[]).
+export interface SoaActivity {
+  id: string
+  name: string
+  form?: string
+  required?: boolean
+  status: "done" | "suggested" | "pending"
+  evidence?: string | null
+  source?: string | null // "edc" | "transcript"
+}
+
+// public/soa_state.json
+export interface SoaState {
+  study: string
+  subject: string
+  visit: string
+  in_window?: boolean
+  updated_at: number
+  required_total: number
+  done: number
+  activities: SoaActivity[]
+  pending?: string[]
+}
+
+// One live oversight check (oversight_state.json -> checks[]).
+export interface OversightCheck {
+  activity?: string
+  status: "pass" | "warn" | "fail"
+  detail?: string
+  guidance?: string
+}
+
+// A recorded protocol deviation.
+export interface Deviation {
+  id: number
+  activity?: string
+  severity: "minor" | "major"
+  description: string
+  guidance?: string
+}
+
+// public/oversight_state.json
+export interface OversightState {
+  subject: string
+  visit: string
+  updated_at: number
+  overall: "on-track" | "attention" | "deviation"
+  checks: OversightCheck[]
+  deviations?: Deviation[]
+}
+
+// An EDC data query flagged in the monitoring report.
+export interface Query {
+  form: string
+  field: string
+  query: string
+}
+
+// public/monitoring_report.json
+export interface MonitoringReport {
+  study: string
+  subject: string
+  visit: string
+  generated_at: number
+  summary?: string
+  sdv?: {
+    fields_total: number
+    auto_sourced: number
+    confirmed: number
+    pending: number
+  }
+  protocol_compliance?: {
+    required: number
+    completed: number
+    missed: string[]
+  }
+  deviations?: Deviation[]
+  queries?: Query[]
+  signoff_ready?: boolean
+  recommendation?: string
+}
+
 // After-visit summary (see visit_summary.py -> public/visit_summary.json).
 export interface VisitSummary {
   patient: string

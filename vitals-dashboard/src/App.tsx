@@ -9,9 +9,29 @@ import { StatTile } from "@/components/StatTile"
 import { FatigueBanner, FatigueAlertOverlay } from "@/components/FatigueBanner"
 import { AgendaPanel } from "@/components/AgendaPanel"
 import { VisitSummaryPanel } from "@/components/VisitSummaryPanel"
+import { SoaPanel } from "@/components/SoaPanel"
+import { EcrfPanel } from "@/components/EcrfPanel"
+import { OversightPanel } from "@/components/OversightPanel"
+import { MonitoringReportPanel } from "@/components/MonitoringReportPanel"
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber"
-import { demoReading, demoAgenda, demoVisitSummary } from "@/lib/demoData"
-import type { Reading, AgendaState, VisitSummary } from "@/lib/types"
+import {
+  demoReading,
+  demoAgenda,
+  demoVisitSummary,
+  demoSoa,
+  demoEdcForms,
+  demoOversight,
+  demoMonitoringReport,
+} from "@/lib/demoData"
+import type {
+  Reading,
+  AgendaState,
+  VisitSummary,
+  SoaState,
+  EdcForms,
+  OversightState,
+  MonitoringReport,
+} from "@/lib/types"
 
 const ease = [0.16, 1, 0.3, 1] as const
 
@@ -55,6 +75,10 @@ export default function App() {
   const [previewTs, setPreviewTs] = useState(0)
   const [agenda, setAgenda] = useState<AgendaState | null>(demoAgenda)
   const [visitSummary, setVisitSummary] = useState<VisitSummary | null>(demoVisitSummary)
+  const [soa, setSoa] = useState<SoaState | null>(demoSoa)
+  const [edcForms, setEdcForms] = useState<EdcForms | null>(demoEdcForms)
+  const [oversight, setOversight] = useState<OversightState | null>(demoOversight)
+  const [monitoringReport, setMonitoringReport] = useState<MonitoringReport | null>(demoMonitoringReport)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const hr = useAnimatedNumber(reading.hr, {
@@ -83,6 +107,14 @@ export default function App() {
         if (ares.ok && !cancelled) setAgenda((await ares.json()) as AgendaState)
         const sres = await fetch(`/visit_summary.json?t=${Date.now()}`, { cache: "no-store" })
         if (sres.ok && !cancelled) setVisitSummary((await sres.json()) as VisitSummary)
+        const soares = await fetch(`/soa_state.json?t=${Date.now()}`, { cache: "no-store" })
+        if (soares.ok && !cancelled) setSoa((await soares.json()) as SoaState)
+        const edcres = await fetch(`/edc_forms.json?t=${Date.now()}`, { cache: "no-store" })
+        if (edcres.ok && !cancelled) setEdcForms((await edcres.json()) as EdcForms)
+        const ovres = await fetch(`/oversight_state.json?t=${Date.now()}`, { cache: "no-store" })
+        if (ovres.ok && !cancelled) setOversight((await ovres.json()) as OversightState)
+        const mres = await fetch(`/monitoring_report.json?t=${Date.now()}`, { cache: "no-store" })
+        if (mres.ok && !cancelled) setMonitoringReport((await mres.json()) as MonitoringReport)
       } catch {
         /* keep last good reading */
       }
@@ -337,6 +369,12 @@ export default function App() {
           </Section>
         )}
       </AnimatePresence>
+
+      {/* ── clinical-trial (Veeva/EDC) layer ───────────────── */}
+      {soa && soa.activities && soa.activities.length > 0 && <SoaPanel soa={soa} />}
+      {edcForms && edcForms.forms && edcForms.forms.length > 0 && <EcrfPanel edc={edcForms} />}
+      {oversight && oversight.checks && oversight.checks.length > 0 && <OversightPanel oversight={oversight} />}
+      {monitoringReport && <MonitoringReportPanel report={monitoringReport} />}
 
       {/* ── after-visit summary ────────────────────────────── */}
       {visitSummary && <VisitSummaryPanel summary={visitSummary} />}

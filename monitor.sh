@@ -11,8 +11,13 @@
 #   add --agenda to any start mode to also run the always-listening visit agenda
 #   tracker (Whisper + db.py topics -> agenda_state.json), e.g. ./monitor.sh --agenda
 #
+#   add --veeva to any start mode to also run the clinical-trial (Veeva) pipeline:
+#     visit_pipeline.py loops edc_autofill + oversight so edc_forms.json,
+#     soa_state.json and oversight_state.json stay live. e.g. ./monitor.sh --veeva
+#     (compose freely, e.g. ./monitor.sh --agenda --veeva)
+#
 # Logs: logs/monitor_phone.log | logs/monitor_video.log, logs/monitor_voice.log,
-#       logs/ar_bridge.log, logs/agenda.log
+#       logs/ar_bridge.log, logs/agenda.log, logs/veeva.log
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,12 +28,14 @@ MIC="${MIC:-1}"
 
 [ -f "$HERE/.env" ] && { set -a; source "$HERE/.env"; set +a; }
 
-# Pull --agenda out of the args (it composes with any start mode).
+# Pull --agenda / --veeva out of the args (they compose with any start mode).
 AGENDA=0
+VEEVA=0
 _args=()
 for a in "$@"; do
   case "$a" in
     --agenda) AGENDA=1 ;;
+    --veeva)  VEEVA=1 ;;
     *) _args+=("$a") ;;
   esac
 done
@@ -49,6 +56,7 @@ stop() {
   pkill -f ar_bridge.py 2>/dev/null || true
   pkill -f monitor_phone.py 2>/dev/null || true
   pkill -f conversation_tracker.py 2>/dev/null || true
+  pkill -f visit_pipeline.py 2>/dev/null || true
   pkill -f "iproxy 18765" 2>/dev/null || true
 }
 
@@ -63,6 +71,7 @@ status() {
   echo "--- AR bridge log (tail) ---"; tail -5 "$LOGDIR/ar_bridge.log" 2>/dev/null || true
   echo "--- phone monitor log (tail) ---"; tail -5 "$LOGDIR/monitor_phone.log" 2>/dev/null || true
   echo "--- agenda log (tail) ---"; tail -5 "$LOGDIR/agenda.log" 2>/dev/null || true
+  echo "--- veeva log (tail) ---"; tail -5 "$LOGDIR/veeva.log" 2>/dev/null || true
 }
 
 case "${1:-start}" in
@@ -88,6 +97,14 @@ start_agenda() {
   echo $! >> "$PIDFILE"
 }
 
+start_veeva() {
+  echo "▶ starting Veeva pipeline (subject ${SUBJECT:-S-001}, visit ${VISIT:-V2}) ..."
+  ( conda activate papagei_env
+    exec python -u "$HERE/visit_pipeline.py" --subject "${SUBJECT:-S-001}" --visit "${VISIT:-V2}"
+  ) >"$LOGDIR/veeva.log" 2>&1 &
+  echo $! >> "$PIDFILE"
+}
+
 if [ "${1:-}" = "--phone" ]; then
   echo "▶ starting phone monitor (Vitals AR app over USB, patient ${PATIENT:-P001}) ..."
   ( conda activate papagei_env
@@ -95,6 +112,7 @@ if [ "${1:-}" = "--phone" ]; then
   ) >"$LOGDIR/monitor_phone.log" 2>&1 &
   echo $! >> "$PIDFILE"
   [ "$AGENDA" = 1 ] && start_agenda
+  [ "$VEEVA" = 1 ] && start_veeva
   echo ""
   echo "✅ live. Plug in the iPhone, open Vitals AR → ⚙︎ → Live (Mac pipeline)."
   echo "   Models warm up for ~25 s first.  tail -f $LOGDIR/monitor_phone.log"
@@ -123,6 +141,7 @@ echo "▶ starting AR bridge → phone over USB (patient ${PATIENT:-P001}) ..."
 echo $! >> "$PIDFILE"
 
 [ "$AGENDA" = 1 ] && start_agenda
+[ "$VEEVA" = 1 ] && start_veeva
 
 echo ""
 echo "✅ live. PIDs: $(tr '\n' ' ' < "$PIDFILE")"

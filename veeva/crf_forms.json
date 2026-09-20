@@ -1,0 +1,61 @@
+{
+  "_note": "DEMO/MOCK eCRF form definitions (Veeva Vault CDMS-shaped). autofill_source in {rppg, fatigue, transcript, null}.",
+  "forms": [
+    {
+      "id": "VS",
+      "name": "Vital Signs",
+      "fields": [
+        {"id": "hr", "label": "Heart rate (bpm)", "type": "number", "autofill": true, "autofill_source": "rppg"},
+        {"id": "resp_rate", "label": "Respiratory rate (breaths/min)", "type": "number", "autofill": true, "autofill_source": "rppg"},
+        {"id": "bp_sys", "label": "Systolic BP (mmHg)", "type": "number", "autofill": false, "autofill_source": null},
+        {"id": "bp_dia", "label": "Diastolic BP (mmHg)", "type": "number", "autofill": false, "autofill_source": null},
+        {"id": "vs_method", "label": "Measurement method", "type": "text", "autofill": true, "autofill_source": "rppg"},
+        {"id": "vs_datetime", "label": "Measurement date/time", "type": "datetime", "autofill": true, "autofill_source": "rppg"}
+      ]
+    },
+    {
+      "id": "AE",
+      "name": "Adverse Events",
+      "fields": [
+        {"id": "ae_term", "label": "Adverse event term", "type": "text", "autofill": true, "autofill_source": "transcript"},
+        {"id": "ae_severity", "label": "Severity", "type": "enum", "options": ["mild", "moderate", "severe"], "autofill": true, "autofill_source": "transcript"},
+        {"id": "ae_related", "label": "Relationship to study drug", "type": "enum", "options": ["unrelated", "possible", "probable"], "autofill": false, "autofill_source": null},
+        {"id": "ae_onset", "label": "Onset date/time", "type": "datetime", "autofill": true, "autofill_source": "transcript"}
+      ]
+    },
+    {
+      "id": "CM",
+      "name": "Concomitant Medications",
+      "fields": [
+        {"id": "cm_name", "label": "Medication name", "type": "text", "autofill": true, "autofill_source": "transcript"},
+        {"id": "cm_dose", "label": "Dose", "type": "text", "autofill": true, "autofill_source": "transcript"},
+        {"id": "cm_indication", "label": "Indication", "type": "text", "autofill": true, "autofill_source": "transcript"}
+      ]
+    },
+    {
+      "id": "PRO",
+      "name": "Fatigue PRO",
+      "fields": [
+        {"id": "fatigue_score", "label": "Fatigue score (0-1)", "type": "number", "autofill": true, "autofill_source": "fatigue"},
+        {"id": "too_fatigued", "label": "Too fatigued to continue", "type": "bool", "autofill": true, "autofill_source": "fatigue"},
+        {"id": "pro_notes", "label": "PRO notes", "type": "text", "autofill": true, "autofill_source": "transcript"}
+      ]
+    },
+    {
+      "id": "IC",
+      "name": "Informed Consent",
+      "fields": [
+        {"id": "consent_signed", "label": "Consent signed", "type": "bool", "autofill": false, "autofill_source": null},
+        {"id": "consent_date", "label": "Consent date/time", "type": "datetime", "autofill": false, "autofill_source": null}
+      ]
+    },
+    {
+      "id": "PE",
+      "name": "Physical Examination",
+      "fields": [
+        {"id": "pe_normal", "label": "Exam normal", "type": "bool", "autofill": false, "autofill_source": null},
+        {"id": "pe_findings", "label": "Findings", "type": "text", "autofill": true, "autofill_source": "transcript"}
+      ]
+    }
+  ]
+}

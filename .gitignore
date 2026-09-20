@@ -47,3 +47,11 @@ xcuserdata/
 vitals-dashboard/public/agenda_state.json
 models/
 vitals-dashboard/public/visit_summary.json
+
+# Veeva runtime state (definitions in veeva/*.json stay committed)
+veeva/edc_store.json
+vitals-dashboard/public/edc_forms.json
+vitals-dashboard/public/soa_state.json
+vitals-dashboard/public/oversight_state.json
+vitals-dashboard/public/monitoring_report.json
+vitals-dashboard/public/transcript.json

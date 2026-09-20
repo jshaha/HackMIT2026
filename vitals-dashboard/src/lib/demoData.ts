@@ -1,4 +1,12 @@
-import type { Reading, AgendaState, VisitSummary } from "./types"
+import type {
+  Reading,
+  AgendaState,
+  VisitSummary,
+  SoaState,
+  EdcForms,
+  OversightState,
+  MonitoringReport,
+} from "./types"
 
 // Generate a lifelike PPG pulse waveform: fundamental + dicrotic-notch harmonic,
 // slow respiratory baseline drift, subtle beat-to-beat variability and noise.
@@ -202,4 +210,323 @@ export const demoVisitSummary: VisitSummary = {
   },
   emotional_arc:
     "Started slightly guarded, warmed up quickly, and stayed calm and engaged through the close.",
+}
+
+// ── Clinical-trial (Veeva/EDC) demo samples — coherent for S-001 / V2 ──────
+// Study REGN-DEMO-2026, subject S-001, visit V2 (Baseline / Day 1).
+// Exercises every panel state without being alarming: VS auto-filled as DRAFT,
+// one suggested + one pending SoA activity, one 'warn' oversight check, and a
+// monitoring report with a single minor deviation.
+const NOW_ISO = new Date().toISOString()
+
+// Demo Schedule of Activities — one done, one suggested, one pending.
+export const demoSoa: SoaState = {
+  study: "REGN-DEMO-2026",
+  subject: "S-001",
+  visit: "V2",
+  in_window: true,
+  updated_at: Date.now() / 1000,
+  required_total: 4,
+  done: 2,
+  activities: [
+    {
+      id: "vital_signs",
+      name: "Vital signs",
+      form: "VS",
+      required: true,
+      status: "done",
+      evidence: "HR 70.6 captured (draft)",
+      source: "edc",
+    },
+    {
+      id: "conmeds",
+      name: "Concomitant medications review",
+      form: "CM",
+      required: true,
+      status: "done",
+      evidence: "10mg every morning noted",
+      source: "edc",
+    },
+    {
+      id: "ae_review",
+      name: "Adverse event review",
+      form: "AE",
+      required: true,
+      status: "suggested",
+      evidence: "patient mentioned morning grogginess",
+      source: "transcript",
+    },
+    {
+      id: "fatigue_pro",
+      name: "Fatigue PRO assessment",
+      form: "PRO",
+      required: true,
+      status: "pending",
+      evidence: null,
+      source: null,
+    },
+  ],
+  pending: ["fatigue_pro"],
+}
+
+// Demo eCRF forms — VS auto-filled as DRAFT with rPPG provenance (incl. a
+// vital-signs draft field), one confirmed CM form, empty required AE fields.
+export const demoEdcForms: EdcForms = {
+  study: "REGN-DEMO-2026",
+  subject: "S-001",
+  visit: "V2",
+  updated_at: Date.now() / 1000,
+  forms: [
+    {
+      form: "VS",
+      name: "Vital Signs",
+      subject: "S-001",
+      visit: "V2",
+      status: "draft",
+      fields: [
+        {
+          id: "hr",
+          label: "Heart rate (bpm)",
+          type: "number",
+          value: 70.6,
+          status: "draft",
+          required: true,
+          source: "contactless-rppg",
+          captured_at: NOW_ISO,
+          confidence: 0.72,
+        },
+        {
+          id: "resp_rate",
+          label: "Respiratory rate (/min)",
+          type: "number",
+          value: 14.2,
+          status: "draft",
+          required: true,
+          source: "contactless-rppg",
+          captured_at: NOW_ISO,
+          confidence: 0.72,
+        },
+        {
+          id: "bp_sys",
+          label: "Blood pressure — systolic (mmHg)",
+          type: "number",
+          value: null,
+          status: "empty",
+          required: true,
+          source: null,
+        },
+        {
+          id: "bp_dia",
+          label: "Blood pressure — diastolic (mmHg)",
+          type: "number",
+          value: null,
+          status: "empty",
+          required: true,
+          source: null,
+        },
+        {
+          id: "vs_method",
+          label: "Method",
+          type: "text",
+          value: "Contactless rPPG (camera)",
+          status: "draft",
+          source: "contactless-rppg",
+          captured_at: NOW_ISO,
+          confidence: 0.72,
+        },
+        {
+          id: "vs_datetime",
+          label: "Measured at",
+          type: "datetime",
+          value: NOW_ISO,
+          status: "draft",
+          source: "contactless-rppg",
+          captured_at: NOW_ISO,
+          confidence: 0.72,
+        },
+      ],
+    },
+    {
+      form: "PRO",
+      name: "Fatigue PRO",
+      subject: "S-001",
+      visit: "V2",
+      status: "draft",
+      fields: [
+        {
+          id: "fatigue_score",
+          label: "Fatigue score (0–1)",
+          type: "number",
+          value: 0.29,
+          status: "draft",
+          required: true,
+          source: "fatigue-model",
+          captured_at: NOW_ISO,
+          confidence: 0.78,
+        },
+        {
+          id: "too_fatigued",
+          label: "Too fatigued to continue?",
+          type: "bool",
+          value: false,
+          status: "draft",
+          required: true,
+          source: "fatigue-model",
+          captured_at: NOW_ISO,
+          confidence: 0.78,
+        },
+        {
+          id: "pro_notes",
+          label: "Notes",
+          type: "text",
+          value: null,
+          status: "empty",
+          source: null,
+        },
+      ],
+    },
+    {
+      form: "CM",
+      name: "Concomitant Medications",
+      subject: "S-001",
+      visit: "V2",
+      status: "confirmed",
+      fields: [
+        {
+          id: "cm_name",
+          label: "Medication",
+          type: "text",
+          value: "Atorvastatin",
+          status: "confirmed",
+          required: true,
+          source: "transcript-extraction",
+          captured_at: NOW_ISO,
+          confidence: 0.61,
+          signer: "clinician",
+          signed_at: NOW_ISO,
+        },
+        {
+          id: "cm_dose",
+          label: "Dose",
+          type: "text",
+          value: "10 mg once daily",
+          status: "confirmed",
+          required: true,
+          source: "transcript-extraction",
+          captured_at: NOW_ISO,
+          confidence: 0.61,
+          signer: "clinician",
+          signed_at: NOW_ISO,
+        },
+      ],
+    },
+    {
+      form: "AE",
+      name: "Adverse Events",
+      subject: "S-001",
+      visit: "V2",
+      status: "empty",
+      fields: [
+        {
+          id: "ae_term",
+          label: "Adverse event term",
+          type: "text",
+          value: null,
+          status: "empty",
+          required: true,
+          source: null,
+        },
+        {
+          id: "ae_severity",
+          label: "Severity",
+          type: "enum",
+          value: null,
+          status: "empty",
+          required: true,
+          source: null,
+        },
+        {
+          id: "ae_onset",
+          label: "Onset",
+          type: "datetime",
+          value: null,
+          status: "empty",
+          required: true,
+          source: null,
+        },
+      ],
+    },
+  ],
+}
+
+// Demo live oversight — on-track overall, with one 'warn' (symptom mentioned
+// but AE form still empty) and one minor deviation.
+export const demoOversight: OversightState = {
+  subject: "S-001",
+  visit: "V2",
+  updated_at: Date.now() / 1000,
+  overall: "attention",
+  checks: [
+    {
+      activity: "vital_signs",
+      status: "pass",
+      detail: "Vital Signs captured (draft) and within window.",
+      guidance: "Confirm and e-sign the draft VS values.",
+    },
+    {
+      activity: "conmeds",
+      status: "pass",
+      detail: "Concomitant medications reviewed and confirmed.",
+    },
+    {
+      activity: "ae_review",
+      status: "warn",
+      detail: "Patient mentioned 'morning grogginess' but the AE form is empty.",
+      guidance: "Open the Adverse Events form and record the reported symptom.",
+    },
+    {
+      activity: "fatigue_pro",
+      status: "pass",
+      detail: "Fatigue PRO auto-drafted from the fatigue model.",
+      guidance: "Confirm and e-sign the PRO draft to complete this activity.",
+    },
+  ],
+  deviations: [
+    {
+      id: 1,
+      activity: "fatigue_pro",
+      severity: "minor",
+      description: "Fatigue PRO not yet e-signed at time of capture.",
+      guidance: "Clinician to confirm the PRO draft before visit close.",
+    },
+  ],
+}
+
+// Demo post-visit monitoring report — not sign-off-ready due to pending drafts.
+export const demoMonitoringReport: MonitoringReport = {
+  study: "REGN-DEMO-2026",
+  subject: "S-001",
+  visit: "V2",
+  generated_at: Date.now() / 1000,
+  summary:
+    "Vital signs and Fatigue PRO were auto-sourced from the contactless capture and remain " +
+    "unconfirmed drafts. Concomitant medications were reviewed and e-signed. A reported symptom " +
+    "(morning grogginess) has not yet been recorded on the Adverse Events form.",
+  sdv: { fields_total: 14, auto_sourced: 8, confirmed: 2, pending: 6 },
+  protocol_compliance: { required: 4, completed: 2, missed: ["fatigue_pro"] },
+  deviations: [
+    {
+      id: 1,
+      activity: "fatigue_pro",
+      severity: "minor",
+      description: "Fatigue PRO not yet e-signed at time of capture.",
+      guidance: "Clinician to confirm the PRO draft before visit close.",
+    },
+  ],
+  queries: [
+    { form: "AE", field: "ae_term", query: "Reported symptom not entered on AE form." },
+    { form: "VS", field: "bp_sys", query: "Blood pressure not captured (manual entry required)." },
+  ],
+  signoff_ready: false,
+  recommendation: "Confirm draft VS/PRO fields and record the reported symptom before sign-off.",
 }

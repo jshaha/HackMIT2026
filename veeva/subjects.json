@@ -1,0 +1,15 @@
+{
+  "_note": "DEMO/MOCK enrolled subjects for study REGN-DEMO-2026.",
+  "subjects": [
+    {
+      "id": "S-001",
+      "study": "REGN-DEMO-2026",
+      "screening_id": "SCR-0001",
+      "arm": "Treatment (DEMO)",
+      "enrolled_date": "2026-09-05",
+      "day1_date": "2026-09-19",
+      "status": "active",
+      "demographics": {"age": 54, "sex": "F", "note": "Mock demographic — not real PHI."}
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "study": {
+    "id": "REGN-DEMO-2026",
+    "name": "Contactless Vitals Sub-study (DEMO/MOCK)",
+    "protocol_version": "1.0",
+    "sponsor": "Regeneron (demo)",
+    "disclaimer": "DEMO/MOCK data — not a real study. For HackMIT contactless-vitals demonstration only."
+  },
+  "visits": [
+    {"id": "SCR", "name": "Screening", "day": -14, "window_days": [-21, -1]},
+    {"id": "V2", "name": "Baseline / Day 1", "day": 1, "window_days": [0, 3]},
+    {"id": "V3", "name": "Week 4", "day": 28, "window_days": [25, 31]}
+  ],
+  "activities": [
+    {"id": "informed_consent", "name": "Informed consent", "form": "IC", "visits": ["SCR"], "required": true},
+    {"id": "vital_signs", "name": "Vital signs", "form": "VS", "visits": ["SCR", "V2", "V3"], "required": true},
+    {"id": "ae_review", "name": "Adverse event review", "form": "AE", "visits": ["V2", "V3"], "required": true},
+    {"id": "conmeds", "name": "Concomitant medications review", "form": "CM", "visits": ["SCR", "V2", "V3"], "required": true},
+    {"id": "fatigue_pro", "name": "Fatigue PRO assessment", "form": "PRO", "visits": ["V2", "V3"], "required": true},
+    {"id": "phys_exam", "name": "Physical examination", "form": "PE", "visits": ["SCR", "V3"], "required": false}
+  ]
+}
