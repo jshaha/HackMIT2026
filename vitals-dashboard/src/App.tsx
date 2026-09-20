@@ -158,6 +158,16 @@ export default function App() {
   const locked = reading.sqi >= 0.5
 
   const faceEmotion = reading.face_emotion
+  // Emotional state: prefer the video (face) model, fall back to the voice model
+  // so the panel always shows something instead of disappearing.
+  const emoState = faceEmotion?.emotional_state || reading.voice?.emotional_state || "reading…"
+  const emoArousal = faceEmotion?.arousal ?? reading.voice?.arousal_index ?? null
+  const emoValence = faceEmotion?.valence ?? reading.voice?.valence ?? null
+  const emoSource = faceEmotion?.emotional_state
+    ? `face (${faceEmotion.source ?? "video"})`
+    : reading.voice?.emotional_state
+      ? `voice (${reading.voice.emotion_source ?? "SER"})`
+      : "awaiting signal"
 
   return (
     // In live mode, disable framer-motion entrance/transform animations so
@@ -269,26 +279,24 @@ export default function App() {
         <StatTile label="LF / HF" value={reading.hrv.lf_hf} decimals={2} delay={0.44} hint="autonomic balance" live={live} />
       </div>
 
-      {/* ── emotional state from the face video (primary) ──── */}
-      {faceEmotion && faceEmotion.emotional_state && (
-        <Section delay={0.26} className="card mt-4 p-7">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <FieldLabel>Emotional state</FieldLabel>
-              <span className="rounded-full border border-[color:var(--color-pulse)]/40 bg-[color:var(--color-pulse)]/10 px-3 py-1 text-[15px] font-semibold text-[color:var(--color-pulse-deep)]">
-                {faceEmotion.emotional_state}
-              </span>
-            </div>
-            <span className="font-mono text-[12px] text-[color:var(--color-ink-mute)]">
-              source: {faceEmotion.source}
+      {/* ── emotional state (video face model, voice fallback) ── */}
+      <Section delay={0.26} className="card mt-4 p-7">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <FieldLabel>Emotional state</FieldLabel>
+            <span className="rounded-full border border-[color:var(--color-pulse)]/40 bg-[color:var(--color-pulse)]/10 px-3 py-1 text-[15px] font-semibold text-[color:var(--color-pulse-deep)]">
+              {emoState}
             </span>
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
-            <StatTile label="Arousal (video)" value={faceEmotion.arousal} decimals={2} delay={0.28} hint="calm ↔ activated" live={live} />
-            <StatTile label="Valence (video)" value={faceEmotion.valence} decimals={2} delay={0.31} hint="neg ↔ pos" live={live} />
-          </div>
-        </Section>
-      )}
+          <span className="font-mono text-[12px] text-[color:var(--color-ink-mute)]">
+            source: {emoSource}
+          </span>
+        </div>
+        <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+          <StatTile label="Arousal" value={emoArousal} decimals={2} delay={0.28} hint="calm ↔ activated" live={live} />
+          <StatTile label="Valence" value={emoValence} decimals={2} delay={0.31} hint="neg ↔ pos" live={live} />
+        </div>
+      </Section>
 
       {/* ── voice-decoder leg (secondary emotional / fatigue markers) ── */}
       {reading.voice && (

@@ -156,6 +156,40 @@ def _crop(frame, box):
     return frame[y1:y2, x1:x2]
 
 
+_FRIENDLY = {
+    "happiness": "happy / positive", "sadness": "sad / low",
+    "anger": "angry / tense", "fear": "anxious", "surprise": "surprised",
+    "disgust": "displeased", "contempt": "disengaged",
+}
+
+
+def _state_label(arousal, valence, prob_map):
+    """A responsive emotional-state label. FER+ is heavily neutral-biased, so:
+    name a clearly-expressed emotion when one stands out, otherwise place the
+    face on the arousal/valence plane (graded — 'calm', 'tired / flat',
+    'engaged', 'tense') rather than defaulting to a static 'neutral'."""
+    strong = {k: v for k, v in prob_map.items() if k != "neutral"}
+    top_e = max(strong, key=strong.get) if strong else None
+    if top_e and strong[top_e] >= 0.35:
+        return _FRIENDLY.get(top_e, top_e)
+
+    hi_a, lo_a = arousal >= 0.50, arousal < 0.33
+    hi_v, lo_v = valence >= 0.55, valence < 0.45
+    if lo_a and lo_v:
+        return "tired / flat"
+    if lo_a and hi_v:
+        return "calm"
+    if hi_a and hi_v:
+        return "engaged"
+    if hi_a and lo_v:
+        return "tense"
+    if lo_a:
+        return "low energy"
+    if hi_a:
+        return "alert"
+    return "neutral"
+
+
 def predict(frame_or_face, box=None):
     """Estimate facial emotion + affect.
 
@@ -189,12 +223,11 @@ def predict(frame_or_face, box=None):
         # probability-weighted circumplex position
         arousal = sum(prob_map[l] * AV_MAP[l][0] for l in LABELS)
         valence = sum(prob_map[l] * AV_MAP[l][1] for l in LABELS)
-        top = max(prob_map, key=prob_map.get)
 
         return {
             "arousal": round(float(arousal), 3),
             "valence": round(float(valence), 3),
-            "emotional_state": top,
+            "emotional_state": _state_label(arousal, valence, prob_map),
             "source": SOURCE,
             "probs": {k: round(v, 4) for k, v in prob_map.items()},
         }
