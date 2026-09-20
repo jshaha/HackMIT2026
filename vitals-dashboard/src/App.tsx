@@ -6,9 +6,12 @@ import { HrTrendChart } from "@/components/HrTrendChart"
 import { HrvRadar } from "@/components/HrvRadar"
 import { EmbeddingFingerprint } from "@/components/EmbeddingFingerprint"
 import { StatTile } from "@/components/StatTile"
+import { FatigueBanner, FatigueAlertOverlay } from "@/components/FatigueBanner"
+import { AgendaPanel } from "@/components/AgendaPanel"
+import { VisitSummaryPanel } from "@/components/VisitSummaryPanel"
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber"
-import { demoReading } from "@/lib/demoData"
-import type { Reading, FatigueDecision, AgendaState } from "@/lib/types"
+import { demoReading, demoAgenda, demoVisitSummary } from "@/lib/demoData"
+import type { Reading, AgendaState, VisitSummary } from "@/lib/types"
 
 const ease = [0.16, 1, 0.3, 1] as const
 
@@ -45,117 +48,13 @@ function CameraPreview({ ts }: { ts: number }) {
   )
 }
 
-/** Visit agenda coverage — the always-listening tracker's output. */
-function AgendaPanel({ agenda }: { agenda: AgendaState }) {
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, ease }}
-      className="card mt-4 p-7"
-    >
-      <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-[15px] font-semibold text-[color:var(--color-ink)]">Visit agenda</h2>
-        <span className="font-mono text-[12px] text-[color:var(--color-ink-mute)]">
-          {agenda.covered}/{agenda.total} covered · {Math.round(agenda.elapsed_s)}s listening
-        </span>
-      </div>
-      <ul className="mt-4 flex flex-col gap-2.5">
-        {agenda.items.map((it, i) => (
-          <li key={i} className="flex items-start gap-2.5">
-            <span
-              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[11px] ${
-                it.covered ? "bg-emerald-500 text-white" : "border border-[color:var(--color-hair-strong)] text-transparent"
-              }`}
-            >
-              ✓
-            </span>
-            <div className="min-w-0">
-              <div className={`text-[14px] ${it.covered ? "text-[color:var(--color-ink-mute)] line-through" : "text-[color:var(--color-ink-body)]"}`}>
-                {it.text}
-              </div>
-              {it.covered && it.evidence && (
-                <div className="mt-0.5 truncate font-mono text-[11px] text-emerald-700">“{it.evidence}”</div>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
-      {agenda.pending.length > 0 && (
-        <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
-          <span className="font-medium">Still to raise:</span> {agenda.pending.join("; ")}
-        </div>
-      )}
-    </motion.section>
-  )
-}
-
-/** The agentic-loop verdict — the pipeline's headline output. */
-function FatigueBanner({ fatigue }: { fatigue: FatigueDecision }) {
-  const tf = fatigue.too_fatigued
-  const theme =
-    tf === true
-      ? { ring: "border-rose-300", bg: "bg-rose-50", ink: "text-rose-700", dot: "bg-rose-500", label: "Too fatigued" }
-      : tf === false
-        ? { ring: "border-emerald-300", bg: "bg-emerald-50", ink: "text-emerald-700", dot: "bg-emerald-500", label: "OK to continue" }
-        : { ring: "border-amber-300", bg: "bg-amber-50", ink: "text-amber-700", dot: "bg-amber-500", label: "Inconclusive" }
-  const score = fatigue.fatigue_score
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.06, duration: 0.6, ease }}
-      className={`mt-6 rounded-xl border ${theme.ring} ${theme.bg} p-6`}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <span className={`inline-block h-2.5 w-2.5 rounded-full ${theme.dot}`} />
-          <div>
-            <div className="text-[12px] font-medium uppercase tracking-wide text-[color:var(--color-ink-mute)]">
-              Fatigue decision
-            </div>
-            <div className={`font-display text-[24px] font-bold leading-tight ${theme.ink}`}>{theme.label}</div>
-          </div>
-        </div>
-        <div className="flex items-center gap-6 font-mono text-[13px] text-[color:var(--color-ink-body)]">
-          <div>
-            <div className="text-[color:var(--color-ink-mute)]">Fatigue score</div>
-            <div className="text-[18px] tabular-nums">{score == null ? "—" : score.toFixed(2)}</div>
-          </div>
-          <div>
-            <div className="text-[color:var(--color-ink-mute)]">Confidence</div>
-            <div className="text-[18px] tabular-nums">{(fatigue.confidence * 100).toFixed(0)}%</div>
-          </div>
-          <div>
-            <div className="text-[color:var(--color-ink-mute)]">Next action</div>
-            <div className={`text-[18px] font-semibold uppercase ${theme.ink}`}>{fatigue.next_action}</div>
-          </div>
-        </div>
-      </div>
-      <p className="mt-3 text-[14px] leading-relaxed text-[color:var(--color-ink-body)]">{fatigue.reasoning}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {fatigue.key_factors.map((f, i) => (
-          <span
-            key={i}
-            className="rounded-md border border-[color:var(--color-hair)] bg-[color:var(--color-card)] px-2.5 py-1 font-mono text-[11px] text-[color:var(--color-ink-body)]"
-          >
-            {f}
-          </span>
-        ))}
-      </div>
-      <div className="mt-3 font-mono text-[11px] text-[color:var(--color-ink-mute)]">
-        engine: {fatigue.engine} · legs: heart={String(fatigue.inputs.heart_leg)} voice={String(fatigue.inputs.voice_leg)}
-      </div>
-    </motion.section>
-  )
-}
-
 export default function App() {
   const [reading, setReading] = useState<Reading>(demoReading)
   const [isReal, setIsReal] = useState(false)
   const [live, setLive] = useState(false)
   const [previewTs, setPreviewTs] = useState(0)
-  const [agenda, setAgenda] = useState<AgendaState | null>(null)
+  const [agenda, setAgenda] = useState<AgendaState | null>(demoAgenda)
+  const [visitSummary, setVisitSummary] = useState<VisitSummary | null>(demoVisitSummary)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const hr = useAnimatedNumber(reading.hr, {
@@ -182,6 +81,8 @@ export default function App() {
         }
         const ares = await fetch(`/agenda_state.json?t=${Date.now()}`, { cache: "no-store" })
         if (ares.ok && !cancelled) setAgenda((await ares.json()) as AgendaState)
+        const sres = await fetch(`/visit_summary.json?t=${Date.now()}`, { cache: "no-store" })
+        if (sres.ok && !cancelled) setVisitSummary((await sres.json()) as VisitSummary)
       } catch {
         /* keep last good reading */
       }
@@ -223,8 +124,13 @@ export default function App() {
   const captured = new Date(reading.captured_at)
   const locked = reading.sqi >= 0.5
 
+  const faceEmotion = reading.face_emotion
+
   return (
     <div className="mx-auto max-w-[1180px] px-6 py-10 md:px-10 md:py-14">
+      {/* ── unmissable too-fatigued cue (pulsing border + banner) ── */}
+      {reading.fatigue && <FatigueAlertOverlay fatigue={reading.fatigue} />}
+
       {/* ── header ─────────────────────────────────────────── */}
       <motion.header
         initial={{ opacity: 0, y: -10 }}
@@ -327,7 +233,28 @@ export default function App() {
         <StatTile label="LF / HF" value={reading.hrv.lf_hf} decimals={2} delay={0.44} hint="autonomic balance" live={live} />
       </div>
 
-      {/* ── voice-decoder leg (emotional state / fatigue markers) ── */}
+      {/* ── emotional state from the face video (primary) ──── */}
+      {faceEmotion && faceEmotion.emotional_state && (
+        <Section delay={0.26} className="card mt-4 p-7">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <FieldLabel>Emotional state</FieldLabel>
+              <span className="rounded-full border border-[color:var(--color-pulse)]/40 bg-[color:var(--color-pulse)]/10 px-3 py-1 text-[15px] font-semibold text-[color:var(--color-pulse-deep)]">
+                {faceEmotion.emotional_state}
+              </span>
+            </div>
+            <span className="font-mono text-[12px] text-[color:var(--color-ink-mute)]">
+              source: {faceEmotion.source}
+            </span>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-4 md:grid-cols-4">
+            <StatTile label="Arousal (video)" value={faceEmotion.arousal} decimals={2} delay={0.28} hint="calm ↔ activated" live={live} />
+            <StatTile label="Valence (video)" value={faceEmotion.valence} decimals={2} delay={0.31} hint="neg ↔ pos" live={live} />
+          </div>
+        </Section>
+      )}
+
+      {/* ── voice-decoder leg (secondary emotional / fatigue markers) ── */}
       {reading.voice && (
         <Section delay={0.28} className="mt-4">
           <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
@@ -335,7 +262,7 @@ export default function App() {
               <FieldLabel>Voice decoder</FieldLabel>
               {reading.voice.emotional_state && (
                 <span className="rounded-full border border-[color:var(--color-hair-strong)] bg-[color:var(--color-card-2)] px-2.5 py-0.5 text-[12px] font-medium text-[color:var(--color-ink-body)]">
-                  {reading.voice.emotional_state}
+                  voice: {reading.voice.emotional_state}
                 </span>
               )}
             </div>
@@ -410,6 +337,9 @@ export default function App() {
           </Section>
         )}
       </AnimatePresence>
+
+      {/* ── after-visit summary ────────────────────────────── */}
+      {visitSummary && <VisitSummaryPanel summary={visitSummary} />}
 
       {/* ── footer ─────────────────────────────────────────── */}
       <footer className="mt-10 flex flex-wrap items-center justify-between gap-2 border-t border-[color:var(--color-hair)] pt-5 text-[12px] text-[color:var(--color-ink-mute)]">

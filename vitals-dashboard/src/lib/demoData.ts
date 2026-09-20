@@ -1,4 +1,4 @@
-import type { Reading } from "./types"
+import type { Reading, AgendaState, VisitSummary } from "./types"
 
 // Generate a lifelike PPG pulse waveform: fundamental + dicrotic-notch harmonic,
 // slow respiratory baseline drift, subtle beat-to-beat variability and noise.
@@ -89,20 +89,117 @@ export const demoReading: Reading = {
     speaker_similarity: 0.94,
     is_patient: true,
   },
+  face_emotion: {
+    arousal: 0.62,
+    valence: 0.58,
+    emotional_state: "engaged / calm",
+    source: "face-video (hsemotion)",
+  },
   fatigue: {
     too_fatigued: false,
     fatigue_score: 0.29,
     confidence: 0.78,
     next_action: "continue",
-    reasoning: "Fatigue markers within acceptable range — patient can continue.",
+    trial_recommendation: "continue",
+    reasoning:
+      "Fatigue markers within acceptable range — patient can continue. Heart-rate and " +
+      "breathing are steady and vocal energy is normal.",
     key_factors: [
       "HR 70.6 BPM (normal)",
       "BR 14.2/min (normal)",
       "voice fatigue_index 0.29",
       "voice arousal_index 0.58 (ok)",
     ],
+    contributions: [
+      { feature: "voice fatigue_index", value: 0.29, weight: 0.35, contribution: 0.10, note: "vocal fatigue low" },
+      { feature: "voice arousal", value: 0.58, weight: 0.20, contribution: 0.08, note: "energy normal" },
+      { feature: "heart rate", value: 70.6, weight: 0.25, contribution: 0.07, note: "within resting range" },
+      { feature: "breathing rate", value: 14.2, weight: 0.10, contribution: 0.02, note: "regular" },
+      { feature: "face arousal", value: 0.62, weight: 0.10, contribution: 0.02, note: "attentive" },
+    ],
+    weights_rationale:
+      "Voice fatigue and arousal weighted highest as the strongest short-horizon fatigue signals; " +
+      "heart rate anchors the physiological baseline.",
     engine: "rule-core",
     inputs: { heart_leg: true, voice_leg: true },
   },
   embedding: { n_segments: 3, dim: 512, mean: makeEmbedding(512) },
+}
+
+// Demo visit agenda — mixes covered, pending and a 'suggested' (unconfirmed) item
+// so the confirm/dismiss UI is exercised in the demo view.
+export const demoAgenda: AgendaState = {
+  patient: "Alex Rivera",
+  updated_at: Date.now() / 1000,
+  elapsed_s: 412,
+  covered: 2,
+  total: 5,
+  items: [
+    {
+      text: "Confirm current medications and dosages",
+      covered: true,
+      status: "covered",
+      evidence: "still taking the 10mg every morning like we said",
+      similarity: 0.91,
+      covered_at: Date.now() / 1000 - 300,
+    },
+    {
+      text: "Ask about sleep quality this past week",
+      covered: true,
+      status: "covered",
+      evidence: "honestly I've been sleeping a lot better since the change",
+      similarity: 0.88,
+      covered_at: Date.now() / 1000 - 180,
+    },
+    {
+      text: "Review any new side effects",
+      covered: false,
+      status: "suggested",
+      evidence: "the mornings feel a little off, sort of foggy",
+      similarity: 0.64,
+      covered_at: null,
+    },
+    {
+      text: "Discuss upcoming dose adjustment plan",
+      covered: false,
+      status: "pending",
+      evidence: null,
+      similarity: null,
+      covered_at: null,
+    },
+    {
+      text: "Schedule the follow-up appointment",
+      covered: false,
+      status: "pending",
+      evidence: null,
+      similarity: null,
+      covered_at: null,
+    },
+  ],
+  pending: ["Discuss upcoming dose adjustment plan", "Schedule the follow-up appointment"],
+}
+
+// Demo after-visit summary.
+export const demoVisitSummary: VisitSummary = {
+  patient: "Alex Rivera",
+  generated_at: Date.now() / 1000,
+  duration_s: 428,
+  summary:
+    "Patient reported improved sleep and good medication adherence over the past week. Some mild " +
+    "morning grogginess was noted and should be monitored. Vitals remained stable throughout the " +
+    "visit and the patient stayed engaged. No urgent concerns; a dose-adjustment discussion and " +
+    "follow-up scheduling were left for next contact.",
+  topics_covered: [
+    "Current medications and dosages",
+    "Sleep quality this past week",
+    "General mood and engagement",
+  ],
+  topics_missed: ["Upcoming dose adjustment plan", "Follow-up appointment scheduling"],
+  vitals: {
+    hr_avg: 70.6,
+    fatigue_peak: 0.34,
+    final_recommendation: "Continue — patient tolerated the visit well.",
+  },
+  emotional_arc:
+    "Started slightly guarded, warmed up quickly, and stayed calm and engaged through the close.",
 }

@@ -45,3 +45,5 @@ vitals-ar-ios/build/
 xcuserdata/
 *.xcuserstate
 vitals-dashboard/public/agenda_state.json
+models/
+vitals-dashboard/public/visit_summary.json

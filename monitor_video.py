@@ -21,7 +21,14 @@ import numpy as np
 import rppg
 
 from export_reading import _breathing_rate, _num
-from fatigue_agent import fuse, decide, llm_refine
+from fatigue_agent import assess
+
+try:
+    import face_emotion
+except Exception:  # never let the facial-emotion extra break the vitals loop
+    face_emotion = None
+
+FACE_EMOTION_EVERY = 0.5  # seconds between facial-expression estimates
 
 WINDOW = 20.0       # seconds of trailing signal used per estimate
 UPDATE_EVERY = 2.0  # seconds between dashboard updates
@@ -194,6 +201,10 @@ def main():
                     help="seconds between optional LLM refinements (0 = never)")
     ap.add_argument("--preview", default="vitals-dashboard/public/preview.jpg",
                     help="path to write a live camera frame (empty = off)")
+    ap.add_argument("--patient", default=None,
+                    help="patient_code -> score fatigue against their personal baseline")
+    ap.add_argument("--db", default=os.environ.get("VITALS_DB", "vitals.db"),
+                    help="SQLite DB for baselines/context")
     args = ap.parse_args()
 
     model = rppg.Model()
@@ -204,6 +215,8 @@ def main():
     last_update = 0.0
     last_llm = 0.0
     last_preview = 0.0
+    last_face_emotion = 0.0
+    face_emotion_cache = None  # last {"arousal","valence","emotional_state","source"} or None
     smoother = VitalsSmoother()
 
     with model.video_capture(args.camera):
@@ -219,6 +232,23 @@ def main():
                 _write_preview(args.preview, frame, box)
                 last_preview = now
 
+            # Facial-expression -> emotional-state (throttled, cached). Wrapped so
+            # it can NEVER break the vitals loop; frame from open-rppg is RGB.
+            if (face_emotion is not None and frame is not None and box is not None
+                    and (now - last_face_emotion) >= FACE_EMOTION_EVERY):
+                last_face_emotion = now
+                try:
+                    fe = face_emotion.predict(frame, box=box)
+                    if fe is not None:
+                        face_emotion_cache = {
+                            "arousal": fe.get("arousal"),
+                            "valence": fe.get("valence"),
+                            "emotional_state": fe.get("emotional_state"),
+                            "source": fe.get("source"),
+                        }
+                except Exception:
+                    pass
+
             if elapsed < WARMUP or (elapsed - last_update) < UPDATE_EVERY:
                 continue
             last_update = elapsed
@@ -228,18 +258,18 @@ def main():
                 continue
             smoother.update(reading)
 
-            # fuse with the latest fresh voice reading (may be None)
+            # attach voice + face emotion so all modalities are scored, then run
+            # the full fatigue assessment (fuse -> decide -> optional LLM).
             voice = _load_voice(args.voice)
-            score, factors, sqi_f = fuse(reading, voice)
-            verdict = decide(score, factors, sqi_f, True, voice is not None)
-            engine = "rule-core"
-            if args.llm_every and (elapsed - last_llm) >= args.llm_every:
-                verdict, engine = llm_refine(verdict, reading, voice)
-                last_llm = elapsed
-            verdict["engine"] = engine
-            verdict["inputs"] = {"heart_leg": True, "voice_leg": voice is not None}
-
             reading["voice"] = voice
+            reading["face_emotion"] = face_emotion_cache  # dict or None (contract)
+            use_llm = bool(args.llm_every and (elapsed - last_llm) >= args.llm_every)
+            verdict = assess(reading, voice, patient=args.patient,
+                             db_path=args.db, use_llm=use_llm)
+            if use_llm:
+                last_llm = elapsed
+            engine = verdict.get("engine", "rule-core")
+
             reading["fatigue"] = verdict
             _atomic_write(args.out, reading)
             _atomic_write(args.decision_out, verdict)

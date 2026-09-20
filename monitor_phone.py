@@ -28,9 +28,16 @@ import rppg
 import soundfile as sf
 
 import ar_bridge
-from fatigue_agent import decide, fuse, llm_refine
+from fatigue_agent import assess
 from monitor_video import UPDATE_EVERY, VOICE_STALE, WARMUP, WINDOW, VitalsSmoother, _atomic_write, compute_reading
 from voice_decoder import extract
+
+try:
+    import face_emotion
+except Exception:  # never let the facial-emotion extra break the pipeline
+    face_emotion = None
+
+FACE_EMOTION_EVERY = 0.5  # seconds between facial-expression estimates
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 AUDIO_SR = 16000
@@ -49,6 +56,8 @@ class PhonePipeline:
         self.voice_busy = False
         self.pool = ThreadPoolExecutor(max_workers=1)  # voice decoding off the event loop
         self.last_preview = 0.0
+        self.last_face_emotion = 0.0
+        self.face_emotion = None  # last {"arousal","valence","emotional_state","source"} or None
 
     def warm_up(self):
         """Pay one-time costs before streaming starts, so they never stall the live loop:
@@ -90,8 +99,26 @@ class PhonePipeline:
             img = cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR)
             if img is None:
                 return
-            self.model.update_face(cv2.cvtColor(img, cv2.COLOR_BGR2RGB), ts)  # open-rppg wants RGB
+            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            self.model.update_face(rgb, ts)  # open-rppg wants RGB
             self.frames += 1
+            # Facial-expression -> emotional-state on the phone's face crop
+            # (already a face, so no box). Throttled + cached; never fatal.
+            now_fe = time.time()
+            if (face_emotion is not None
+                    and now_fe - self.last_face_emotion >= FACE_EMOTION_EVERY):
+                self.last_face_emotion = now_fe
+                try:
+                    fe = face_emotion.predict(rgb)
+                    if fe is not None:
+                        self.face_emotion = {
+                            "arousal": fe.get("arousal"),
+                            "valence": fe.get("valence"),
+                            "emotional_state": fe.get("emotional_state"),
+                            "source": fe.get("source"),
+                        }
+                except Exception:
+                    pass
         now = time.time()
         if is_face:
             self.frame_times = [t for t in self.frame_times if now - t < 2] + [now]
@@ -164,16 +191,17 @@ class PhonePipeline:
             self.smoother.update(reading)
 
             voice = self.voice if self.voice and time.time() - self.voice["captured_at"] < VOICE_STALE else None
-            score, factors, sqi = fuse(reading, voice)
-            verdict = decide(score, factors, sqi, True, voice is not None)
-            engine = "rule-core"
-            if self.args.llm_every and time.time() - last_llm >= self.args.llm_every:
-                verdict, engine = await asyncio.get_running_loop().run_in_executor(
-                    None, llm_refine, verdict, reading, voice)
-                last_llm = time.time()
-            verdict["engine"] = engine
-            verdict["inputs"] = {"heart_leg": True, "voice_leg": voice is not None}
             reading["voice"] = voice
+            reading["face_emotion"] = self.face_emotion  # dict or None (contract)
+            use_llm = bool(self.args.llm_every and time.time() - last_llm >= self.args.llm_every)
+            # assess() may do a blocking LLM call -> run it off the event loop.
+            verdict = await asyncio.get_running_loop().run_in_executor(
+                None, lambda: assess(reading, voice, patient=self.args.patient,
+                                     db_path=getattr(self.args, "db", "vitals.db"),
+                                     use_llm=use_llm))
+            if use_llm:
+                last_llm = time.time()
+            engine = verdict.get("engine", "rule-core")
             reading["fatigue"] = verdict
             _atomic_write(self.args.out, reading)
             _atomic_write(self.args.decision_out, verdict)

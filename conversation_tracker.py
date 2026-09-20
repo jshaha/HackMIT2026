@@ -4,16 +4,29 @@ Always-listening visit agenda tracker — "context awareness" for the clinician.
 Listens to the whole visit (doctor + patient, NOT speaker-isolated), transcribes
 it with OpenAI Whisper, and against the patient's must-discuss topics (doctor's
 notes tagged `agenda`/`instruction` in db.py) it:
-  - checks a topic off once it's actually discussed (with the evidence quote), and
-  - keeps prompting for the topics still not covered.
+  - SUGGESTS a topic (status 'suggested') once the rolling transcript looks like
+    it discussed it — detected with fast local VECTOR SEARCH (cosine similarity,
+    no per-check LLM latency) — carrying the best-matching snippet as evidence
+    and the similarity score, and
+  - keeps prompting for the topics still 'pending'.
 
-Writes agenda_state.json (dashboard + AR visit panel read it) each round.
+It NEVER auto-marks a topic 'covered'. The dashboard confirms 'suggested' ->
+'covered'; this process only ever emits 'pending' or 'suggested'.
 
-Run in 'papagei_env' (needs OPENAI_API_KEY in .env):
+Matching backend (see agenda_match.py): sentence-transformers "all-MiniLM-L6-v2"
+cosine (method "minilm-cosine", threshold 0.45) with a pure-numpy TF-IDF cosine
+fallback (method "tfidf-cosine", threshold 0.22) if the model can't load.
+
+Writes agenda_state.json each round (dashboard + AR visit panel read it).
+On stop (Ctrl-C) — or with `--summarize` — it also writes an after-visit
+summary to vitals-dashboard/public/visit_summary.json.
+
+Run in 'papagei_env' (needs OPENAI_API_KEY in .env for Whisper + LLM summary):
     conda activate papagei_env
     python conversation_tracker.py --patient P001
-Stop with Ctrl-C.  A whole-room mic is used, so run it INSTEAD of the mic-bound
-voice monitor, or point --mic at a second input.
+    python conversation_tracker.py --patient P001 --summarize   # summarize only
+Stop the live loop with Ctrl-C.  A whole-room mic is used, so run it INSTEAD of
+the mic-bound voice monitor, or point --mic at a second input.
 """
 import argparse
 import json
@@ -23,8 +36,14 @@ import tempfile
 import time
 import urllib.request
 
+import agenda_match
+
 OPENAI = "https://api.openai.com/v1"
 CHAT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+
+PUBLIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "vitals-dashboard", "public")
+SUMMARY_PATH = os.path.join(PUBLIC_DIR, "visit_summary.json")
 
 
 def _load_dotenv():
@@ -42,9 +61,9 @@ def _load_dotenv():
 _load_dotenv()
 
 
-def _key():
+def _key(required=True):
     k = os.environ.get("OPENAI_API_KEY")
-    if not k:
+    if not k and required:
         raise SystemExit("OPENAI_API_KEY not set (put it in .env). Whisper needs it.")
     return k
 
@@ -93,45 +112,204 @@ def transcribe(wav_path, key):
         return r.read().decode().strip()
 
 
-def coverage_check(transcript, pending, key):
-    """Ask the LLM which still-pending topics the transcript now covers.
-    Returns {topic_index: evidence_quote} for newly-covered topics."""
-    if not pending or not transcript.strip():
-        return {}
-    listing = "\n".join(f"{i}: {t}" for i, t in pending)
+def suggest_topics(transcript, items, elapsed_s):
+    """Update `items` in place from a local cosine-similarity match of the
+    rolling transcript against each topic. Sets status 'suggested' (never
+    'covered') when a topic's best similarity clears the threshold; otherwise
+    leaves it 'pending'. Returns the matcher method string.
+
+    Topics the clinician has already confirmed 'covered' (via the dashboard,
+    reflected back into agenda_state.json / kept in memory) are left untouched.
+    """
+    topics = [it["text"] for it in items]
+    results, method = agenda_match.match_topics(topics, transcript)
+    for it, r in zip(items, results):
+        if it["status"] == "covered":
+            continue  # clinician already confirmed; don't downgrade
+        it["similarity"] = r["similarity"]
+        if r["suggested"]:
+            if it["status"] != "suggested":
+                print(f"   ❓ suggested: {it['text']}  ← \"{r['evidence']}\" "
+                      f"(sim {r['similarity']:.2f})")
+            it["status"] = "suggested"
+            it["evidence"] = r["evidence"]
+        else:
+            it["status"] = "pending"
+            it["evidence"] = None
+    return method
+
+
+def _atomic_write(path, obj):
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(obj, f, indent=2)
+    os.replace(tmp, path)
+
+
+def _read_json(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _write_agenda_state(path, patient, items, elapsed_s, method):
+    covered = sum(1 for it in items if it["status"] == "covered")
+    pending_txt = [it["text"] for it in items if it["status"] == "pending"]
+    _atomic_write(path, {
+        "patient": patient,
+        "updated_at": time.time(),
+        "elapsed_s": round(elapsed_s, 1),
+        "covered": covered,
+        "total": len(items),
+        "items": [
+            {
+                "id": it["id"],
+                "text": it["text"],
+                "status": it["status"],
+                "similarity": it["similarity"],
+                "evidence": it["evidence"],
+                "covered_at": it["covered_at"],
+            }
+            for it in items
+        ],
+        "pending": pending_txt,
+        "method": method,
+    })
+    return covered, pending_txt
+
+
+# --------------------------------------------------------------------------- #
+# after-visit summary
+# --------------------------------------------------------------------------- #
+def _collect_vitals():
+    """Pull hr / fatigue / recommendation from the latest reading + decision."""
+    hr_avg = fatigue_peak = final_rec = None
+    reading = _read_json(os.path.join(PUBLIC_DIR, "reading.json"))
+    if reading:
+        hr = reading.get("hr")
+        if isinstance(hr, (int, float)):
+            hr_avg = round(float(hr), 1)
+        fat = (reading.get("fatigue") or {}).get("fatigue_score")
+        vfat = (reading.get("voice") or {}).get("fatigue_index")
+        cands = [x for x in (fat, vfat) if isinstance(x, (int, float))]
+        if cands:
+            fatigue_peak = round(max(float(c) for c in cands), 3)
+    decision = (_read_json(os.path.join(PUBLIC_DIR, "decision.json"))
+                or (reading or {}).get("fatigue"))
+    if decision:
+        na = decision.get("next_action")
+        rsn = decision.get("reasoning")
+        final_rec = " — ".join(str(x) for x in (na, rsn) if x) or None
+    return {"hr_avg": hr_avg, "fatigue_peak": fatigue_peak,
+            "final_recommendation": final_rec}
+
+
+def _emotional_arc(reading):
+    """One-line qualitative arc from the voice emotion snapshot (best effort)."""
+    voice = (reading or {}).get("voice") or {}
+    state = voice.get("emotional_state")
+    arousal = voice.get("arousal_index")
+    valence = voice.get("valence")
+    if state:
+        extra = []
+        if isinstance(arousal, (int, float)):
+            extra.append(f"arousal {arousal:.2f}")
+        if isinstance(valence, (int, float)):
+            extra.append(f"valence {valence:.2f}")
+        tail = f" ({', '.join(extra)})" if extra else ""
+        return f"Patient presented as {state}{tail} during the visit."
+    return "No voice-emotion signal was captured for this visit."
+
+
+def _llm_summary(patient, transcript, covered, missed, vitals, key):
     prompt = (
-        "You track whether a clinician covered required visit topics. Below is the "
-        "running transcript of a doctor-patient visit, then a numbered list of topics "
-        "NOT yet marked covered. Return ONLY JSON: "
-        '{"covered": [{"id": <int>, "evidence": "<short quote from transcript>"}]}. '
-        "Include a topic id ONLY if the transcript clearly shows it was actually "
-        "discussed (not merely related). Evidence must be a real snippet.\n\n"
-        f"TRANSCRIPT:\n{transcript[-4000:]}\n\nPENDING TOPICS:\n{listing}"
+        "You are a clinical scribe. Write a concise (3-5 sentence) after-visit "
+        "summary for the clinician from the transcript below. Be factual, do not "
+        "invent findings. Then note which agenda topics were covered and which "
+        "were missed.\n\n"
+        f"PATIENT: {patient}\n"
+        f"AGENDA TOPICS COVERED/DISCUSSED: {covered or 'none'}\n"
+        f"AGENDA TOPICS MISSED: {missed or 'none'}\n"
+        f"VITALS: hr_avg={vitals['hr_avg']}, fatigue_peak={vitals['fatigue_peak']}, "
+        f"recommendation={vitals['final_recommendation']}\n\n"
+        f"TRANSCRIPT:\n{transcript[-6000:]}"
     )
     body = json.dumps({
-        "model": CHAT_MODEL, "temperature": 0, "max_tokens": 500,
-        "response_format": {"type": "json_object"},
+        "model": CHAT_MODEL, "temperature": 0.2, "max_tokens": 400,
         "messages": [{"role": "user", "content": prompt}],
     }).encode()
     req = urllib.request.Request(
         f"{OPENAI}/chat/completions", data=body,
         headers={"Content-Type": "application/json",
                  "Authorization": f"Bearer {key}"})
-    try:
-        with urllib.request.urlopen(req, timeout=45) as r:
-            txt = json.load(r)["choices"][0]["message"]["content"]
-        got = json.loads(txt).get("covered", [])
-        return {int(c["id"]): str(c.get("evidence", "")).strip() for c in got}
-    except Exception as e:
-        print(f"[coverage] LLM error: {e}")
-        return {}
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.load(r)["choices"][0]["message"]["content"].strip()
 
 
-def _atomic_write(path, obj):
-    tmp = path + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(obj, f, indent=2)
-    os.replace(tmp, path)
+def _template_summary(patient, transcript, covered, missed, vitals):
+    words = len(transcript.split())
+    bits = [f"Visit with {patient}: ~{words} words of conversation transcribed."]
+    if covered:
+        bits.append("Topics discussed: " + "; ".join(covered) + ".")
+    if missed:
+        bits.append("Not yet raised: " + "; ".join(missed) + ".")
+    if vitals["hr_avg"] is not None:
+        bits.append(f"Heart rate ~{vitals['hr_avg']} bpm.")
+    if vitals["final_recommendation"]:
+        bits.append(f"Recommendation: {vitals['final_recommendation']}.")
+    return " ".join(bits)
+
+
+def summarize_visit(patient, transcript, items, duration_s, out_path=SUMMARY_PATH):
+    """Write vitals-dashboard/public/visit_summary.json.
+
+    Uses the OpenAI LLM if a key is present (not latency-critical here), with a
+    deterministic template fallback otherwise. `items` may be the live in-memory
+    items or None (then covered/missed are derived from the transcript match).
+    """
+    if items is None:
+        # standalone --summarize with no live state: derive from a fresh match
+        topics = summarize_visit._topics or []
+        results, _ = agenda_match.match_topics(topics, transcript)
+        items = [{"text": t, "status": ("suggested" if r["suggested"] else "pending")}
+                 for t, r in zip(topics, results)]
+
+    covered = [it["text"] for it in items
+               if it.get("status") in ("covered", "suggested")]
+    missed = [it["text"] for it in items if it.get("status") == "pending"]
+    vitals = _collect_vitals()
+    reading = _read_json(os.path.join(PUBLIC_DIR, "reading.json"))
+    arc = _emotional_arc(reading)
+
+    key = _key(required=False)
+    summary = None
+    if key and transcript.strip():
+        try:
+            summary = _llm_summary(patient, transcript, covered, missed, vitals, key)
+        except Exception as e:
+            print(f"[summary] LLM error ({e}); using template.")
+    if not summary:
+        summary = _template_summary(patient, transcript, covered, missed, vitals)
+
+    out = {
+        "patient": patient,
+        "generated_at": time.time(),
+        "duration_s": round(float(duration_s), 1),
+        "summary": summary,
+        "topics_covered": covered,
+        "topics_missed": missed,
+        "vitals": vitals,
+        "emotional_arc": arc,
+    }
+    _atomic_write(out_path, out)
+    print(f"[summary] wrote {out_path}")
+    return out
+
+
+summarize_visit._topics = []  # optional topic hint for standalone --summarize
 
 
 def main():
@@ -142,67 +320,96 @@ def main():
     ap.add_argument("--db", default=None)
     ap.add_argument("--chunk-seconds", type=int, default=12)
     ap.add_argument("--check-every", type=float, default=15.0)
+    ap.add_argument("--threshold", type=float, default=None,
+                    help="cosine threshold override (default: matcher default)")
+    ap.add_argument("--summarize", action="store_true",
+                    help="write visit_summary.json from an existing transcript "
+                         "(--transcript / --transcript-file) and exit; no mic.")
+    ap.add_argument("--transcript", default=None)
+    ap.add_argument("--transcript-file", default=None)
     args = ap.parse_args()
 
-    key = _key()
     topics = agenda_items(args.patient, args.db)
+
+    # ---- standalone summary mode (no mic, no loop) -----------------------
+    if args.summarize:
+        transcript = args.transcript or ""
+        if args.transcript_file:
+            with open(args.transcript_file) as f:
+                transcript += (" " + f.read())
+        summarize_visit._topics = topics
+        summarize_visit(args.patient, transcript.strip(), None, 0.0)
+        return
+
     if not topics:
         raise SystemExit(f"No agenda topics for {args.patient}. Add some:\n"
                          f"  python db.py note --patient {args.patient} "
                          f"--text \"...\" --category agenda")
 
-    items = [{"text": t, "covered": False, "evidence": None, "covered_at": None}
-             for t in topics]
+    key = _key()
+    items = [{"id": i, "text": t, "status": "pending", "similarity": None,
+              "evidence": None, "covered_at": None}
+             for i, t in enumerate(topics)]
     transcript = ""
+    method = "minilm-cosine"
     t0 = time.time()
     last_check = 0.0
     print(f"[agenda] listening for {args.patient} — {len(items)} topics to cover. "
           f"Ctrl-C to stop.")
-    for i, it in enumerate(items):
+    for it in items:
         print(f"   ☐ {it['text']}")
 
     tmp = os.path.join(tempfile.gettempdir(), "conv_chunk.wav")
-    while True:
-        record(args.mic, args.chunk_seconds, tmp)
+    try:
+        while True:
+            record(args.mic, args.chunk_seconds, tmp)
+            try:
+                text = transcribe(tmp, key)
+            except Exception as e:
+                print(f"[whisper] error: {e}")
+                continue
+            if text:
+                transcript += " " + text
+                print(f"[heard] {text}")
+
+            now = time.time()
+            if now - last_check >= args.check_every:
+                last_check = now
+                if args.threshold is not None:
+                    # apply custom threshold via a direct match, then map
+                    results, method = agenda_match.match_topics(
+                        [it["text"] for it in items], transcript,
+                        threshold=args.threshold)
+                    for it, r in zip(items, results):
+                        if it["status"] == "covered":
+                            continue
+                        it["similarity"] = r["similarity"]
+                        it["status"] = "suggested" if r["suggested"] else "pending"
+                        it["evidence"] = r["evidence"]
+                else:
+                    method = suggest_topics(transcript, items, now - t0)
+
+                covered, pending_txt = _write_agenda_state(
+                    args.out, args.patient, items, now - t0, method)
+                if pending_txt:
+                    print(f"[agenda] {covered}/{len(items)} confirmed · still to raise: "
+                          + "; ".join(pending_txt))
+                else:
+                    print(f"[agenda] all topics have evidence (awaiting confirmation).")
+    except KeyboardInterrupt:
+        print("\n[agenda] stopping — writing after-visit summary…")
         try:
-            text = transcribe(tmp, key)
+            _write_agenda_state(args.out, args.patient, items,
+                                time.time() - t0, method)
+            summarize_visit(args.patient, transcript.strip(), items,
+                            time.time() - t0)
         except Exception as e:
-            print(f"[whisper] error: {e}")
-            continue
-        if text:
-            transcript += " " + text
-            print(f"[heard] {text}")
-
-        now = time.time()
-        if now - last_check >= args.check_every:
-            last_check = now
-            pending = [(i, it["text"]) for i, it in enumerate(items) if not it["covered"]]
-            newly = coverage_check(transcript, pending, key)
-            for idx, evid in newly.items():
-                if 0 <= idx < len(items) and not items[idx]["covered"]:
-                    items[idx].update(covered=True, evidence=evid,
-                                      covered_at=round(now - t0, 1))
-                    print(f"   ✅ covered: {items[idx]['text']}  ← \"{evid}\"")
-
-            covered = sum(1 for it in items if it["covered"])
-            pending_txt = [it["text"] for it in items if not it["covered"]]
-            _atomic_write(args.out, {
-                "patient": args.patient,
-                "updated_at": time.time(),
-                "elapsed_s": round(now - t0, 1),
-                "covered": covered, "total": len(items),
-                "items": items,
-                "pending": pending_txt,
-            })
-            if pending_txt:
-                print(f"[agenda] {covered}/{len(items)} covered · still to raise: "
-                      + "; ".join(pending_txt))
-            else:
-                print(f"[agenda] ✅ all {len(items)} topics covered.")
+            print(f"[summary] failed: {e}")
+        raise
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n[agenda] stopped.")
+        print("[agenda] stopped.")
