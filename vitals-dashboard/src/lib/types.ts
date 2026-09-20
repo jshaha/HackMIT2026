@@ -44,6 +44,24 @@ export interface FatigueDecision {
   inputs: { heart_leg: boolean; voice_leg: boolean }
 }
 
+// Visit agenda coverage (see conversation_tracker.py).
+export interface AgendaItem {
+  text: string
+  covered: boolean
+  evidence: string | null
+  covered_at: number | null
+}
+
+export interface AgendaState {
+  patient: string
+  updated_at: number
+  elapsed_s: number
+  covered: number
+  total: number
+  items: AgendaItem[]
+  pending: string[]
+}
+
 export interface Reading {
   source: string          // "iPhone (Continuity)" | "FaceTime HD" | ...
   captured_at: string     // ISO timestamp

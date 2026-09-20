@@ -8,7 +8,7 @@ import { EmbeddingFingerprint } from "@/components/EmbeddingFingerprint"
 import { StatTile } from "@/components/StatTile"
 import { useAnimatedNumber } from "@/hooks/useAnimatedNumber"
 import { demoReading } from "@/lib/demoData"
-import type { Reading, FatigueDecision } from "@/lib/types"
+import type { Reading, FatigueDecision, AgendaState } from "@/lib/types"
 
 const ease = [0.16, 1, 0.3, 1] as const
 
@@ -42,6 +42,51 @@ function CameraPreview({ ts }: { ts: number }) {
       onError={() => setOk(false)}
       className="w-full rounded-md border border-[color:var(--color-hair)] object-cover"
     />
+  )
+}
+
+/** Visit agenda coverage — the always-listening tracker's output. */
+function AgendaPanel({ agenda }: { agenda: AgendaState }) {
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, ease }}
+      className="card mt-4 p-7"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-[15px] font-semibold text-[color:var(--color-ink)]">Visit agenda</h2>
+        <span className="font-mono text-[12px] text-[color:var(--color-ink-mute)]">
+          {agenda.covered}/{agenda.total} covered · {Math.round(agenda.elapsed_s)}s listening
+        </span>
+      </div>
+      <ul className="mt-4 flex flex-col gap-2.5">
+        {agenda.items.map((it, i) => (
+          <li key={i} className="flex items-start gap-2.5">
+            <span
+              className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] text-[11px] ${
+                it.covered ? "bg-emerald-500 text-white" : "border border-[color:var(--color-hair-strong)] text-transparent"
+              }`}
+            >
+              ✓
+            </span>
+            <div className="min-w-0">
+              <div className={`text-[14px] ${it.covered ? "text-[color:var(--color-ink-mute)] line-through" : "text-[color:var(--color-ink-body)]"}`}>
+                {it.text}
+              </div>
+              {it.covered && it.evidence && (
+                <div className="mt-0.5 truncate font-mono text-[11px] text-emerald-700">“{it.evidence}”</div>
+              )}
+            </div>
+          </li>
+        ))}
+      </ul>
+      {agenda.pending.length > 0 && (
+        <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[13px] text-amber-800">
+          <span className="font-medium">Still to raise:</span> {agenda.pending.join("; ")}
+        </div>
+      )}
+    </motion.section>
   )
 }
 
@@ -110,6 +155,7 @@ export default function App() {
   const [isReal, setIsReal] = useState(false)
   const [live, setLive] = useState(false)
   const [previewTs, setPreviewTs] = useState(0)
+  const [agenda, setAgenda] = useState<AgendaState | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const hr = useAnimatedNumber(reading.hr, {
@@ -134,6 +180,8 @@ export default function App() {
           apply((await res.json()) as Reading)
           setPreviewTs(Date.now())
         }
+        const ares = await fetch(`/agenda_state.json?t=${Date.now()}`, { cache: "no-store" })
+        if (ares.ok && !cancelled) setAgenda((await ares.json()) as AgendaState)
       } catch {
         /* keep last good reading */
       }
@@ -227,6 +275,9 @@ export default function App() {
 
       {/* ── agentic-loop verdict (headline output) ─────────── */}
       {reading.fatigue && <FatigueBanner fatigue={reading.fatigue} />}
+
+      {/* ── visit agenda coverage (always-listening tracker) ── */}
+      {agenda && agenda.total > 0 && <AgendaPanel agenda={agenda} />}
 
       {/* ── primary metric band (flat card, two columns — not nested) ── */}
       <Section delay={0.1} className="card mt-4 overflow-hidden">

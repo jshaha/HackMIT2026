@@ -26,18 +26,26 @@ Library use (from the capture scripts / agentic loop):
     rows = db.get_readings(pid)                       # longitudinal, oldest->newest
     db.insert_doctor_note(pid, "Post-op week 2; on beta-blockers.", author="Dr.Lee")
     ctx = db.format_patient_context("P001")          # text to drop into the LLM prompt
+    base = db.get_baseline(pid)                       # per-feature mean/std for z-scoring
+
+Per-patient baselines: fatigue is within-subject, so the agent scores personal
+deviations. Tag rested captures with is_baseline=True (or `--baseline`); with none
+tagged, get_baseline() falls back to the patient's prior non-fatigued readings.
 
 One-line ingest of existing JSON files:
-    python db.py ingest  --patient P001 --reading reading.json --voice voice_features.json
-    python db.py note    --patient P001 --text "Chronic fatigue Hx; sleeps poorly." --author Dr.Lee
-    python db.py context --patient P001              # demographics + notes + recent readings
-    python db.py list    --patient P001
+    python db.py ingest   --patient P001 --reading reading.json --voice voice_features.json
+    python db.py ingest   --patient P001 --voice rested.json --baseline   # reference capture
+    python db.py baseline --patient P001              # show computed per-feature baseline
+    python db.py note     --patient P001 --text "Chronic fatigue Hx; sleeps poorly." --author Dr.Lee
+    python db.py context  --patient P001              # demographics + notes + recent readings
+    python db.py list     --patient P001
     python db.py init
 """
 import argparse
 import json
 import os
 import sqlite3
+import statistics
 from contextlib import contextmanager
 from datetime import datetime, timezone
 
@@ -63,6 +71,7 @@ CREATE TABLE IF NOT EXISTS readings (
     patient_id    INTEGER NOT NULL REFERENCES patients(id) ON DELETE CASCADE,
     captured_at   TEXT NOT NULL,           -- ISO8601 UTC
     source        TEXT,                    -- e.g. "iPhone (Continuity)"
+    is_baseline   INTEGER NOT NULL DEFAULT 0,  -- 1 = a rested/normal reference capture
     created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_readings_patient_time
@@ -148,10 +157,18 @@ def connect(db_path=DEFAULT_DB):
 
 
 def init_db(db_path=DEFAULT_DB):
-    """Create tables/indexes if absent. Idempotent."""
+    """Create tables/indexes if absent, then run lightweight migrations. Idempotent."""
     with connect(db_path) as conn:
         conn.executescript(SCHEMA_SQL)
+        _migrate(conn)
     return db_path
+
+
+def _migrate(conn):
+    """Additive column migrations for DBs created before a column existed."""
+    cols = [r["name"] for r in conn.execute("PRAGMA table_info(readings)").fetchall()]
+    if "is_baseline" not in cols:
+        conn.execute("ALTER TABLE readings ADD COLUMN is_baseline INTEGER NOT NULL DEFAULT 0")
 
 
 # ---------------------------------------------------------------- patients ---
@@ -175,21 +192,22 @@ def insert_patient(patient_code, alias=None, dob=None, age=None, sex=None,
 
 # ---------------------------------------------------------------- readings ---
 def insert_reading(patient_id, reading=None, voice=None, captured_at=None,
-                   source=None, db_path=DEFAULT_DB):
+                   source=None, is_baseline=False, db_path=DEFAULT_DB):
     """Create a capture event and attach whichever legs are provided.
 
     `reading` / `voice` are the dicts from reading.json / voice_features.json.
     captured_at defaults to reading['captured_at'] (heart leg) or now() — the
-    voice JSON carries no timestamp of its own. Returns the reading id.
+    voice JSON carries no timestamp of its own. Set is_baseline=True for a
+    rested/normal reference capture (feeds get_baseline). Returns the reading id.
     """
     init_db(db_path)
     when = captured_at or (reading or {}).get("captured_at") or _utcnow()
     src = source or (reading or {}).get("source")
     with connect(db_path) as conn:
         cur = conn.execute(
-            "INSERT INTO readings (patient_id, captured_at, source, created_at) "
-            "VALUES (?, ?, ?, ?)",
-            (patient_id, when, src, _utcnow()),
+            "INSERT INTO readings (patient_id, captured_at, source, is_baseline, created_at) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (patient_id, when, src, int(bool(is_baseline)), _utcnow()),
         )
         rid = cur.lastrowid
         if reading is not None:
@@ -328,6 +346,63 @@ def format_patient_context(patient, recent=3, db_path=DEFAULT_DB):
     return "\n".join(lines)
 
 
+# ---------------------------------------------------------------- baselines ---
+# Numeric features we baseline per patient (DB column -> used by fatigue_agent).
+BASELINE_COLS = {
+    "heart_features": ("hr", "hrv_rmssd", "hrv_sdnn", "hrv_breathingrate"),
+    "voice_features": ("fatigue_index", "arousal_index", "pause_ratio",
+                       "speech_rate_hz", "shimmer_pct"),
+}
+
+
+def get_baseline(patient_id, exclude_reading_id=None, min_n=3, db_path=DEFAULT_DB):
+    """Per-patient mean/std for each feature, over the patient's *baseline*
+    readings, so the agent can score personal deviations (z-scores) instead of
+    absolute cutoffs.
+
+    Baseline set: readings explicitly tagged is_baseline=1 if any exist,
+    otherwise the patient's prior non-fatigued readings (too_fatigued not = 1).
+    A feature is only returned when it has >= min_n samples with a non-zero std.
+
+    Returns {"n_readings": int, "source": "tagged"|"non_fatigued", "features": {
+        col: {"mean": .., "std": .., "n": ..}, ...}}.
+    """
+    with connect(db_path) as conn:
+        tagged = conn.execute(
+            "SELECT COUNT(*) FROM readings WHERE patient_id = ? AND is_baseline = 1",
+            (patient_id,),
+        ).fetchone()[0]
+        if tagged:
+            where, params, source = "r.patient_id = ? AND r.is_baseline = 1", [patient_id], "tagged"
+        else:
+            where = "r.patient_id = ? AND COALESCE(d.too_fatigued, 0) = 0"
+            params, source = [patient_id], "non_fatigued"
+        if exclude_reading_id is not None:
+            where += " AND r.id <> ?"
+            params.append(exclude_reading_id)
+        ids = [row["id"] for row in conn.execute(
+            "SELECT r.id FROM readings r "
+            "LEFT JOIN fatigue_decisions d ON d.reading_id = r.id "
+            f"WHERE {where}", params).fetchall()]
+        if not ids:
+            return {"n_readings": 0, "source": source, "features": {}}
+
+        qmarks = ",".join("?" * len(ids))
+        feats = {}
+        for table, cols in BASELINE_COLS.items():
+            rows = conn.execute(
+                f"SELECT {', '.join(cols)} FROM {table} WHERE reading_id IN ({qmarks})",
+                ids).fetchall()
+            for c in cols:
+                vals = [row[c] for row in rows if row[c] is not None]
+                if len(vals) >= min_n:
+                    sd = statistics.pstdev(vals)
+                    if sd > 1e-6:
+                        feats[c] = {"mean": round(statistics.fmean(vals), 4),
+                                    "std": round(sd, 4), "n": len(vals)}
+        return {"n_readings": len(ids), "source": source, "features": feats}
+
+
 # ------------------------------------------------------------------- reads ---
 def get_readings(patient_id, db_path=DEFAULT_DB):
     """All readings for a patient, oldest->newest, each reassembled to nested
@@ -462,6 +537,8 @@ def _cli():
     ing.add_argument("--voice", help="path to voice_features.json (voice leg)")
     ing.add_argument("--decision", help="path to decision.json (fatigue loop output)")
     ing.add_argument("--source", help="override source label")
+    ing.add_argument("--baseline", action="store_true",
+                     help="mark this as a rested/normal reference capture")
     ing.add_argument("--note", help="attach a doctor's note to the patient")
     ing.add_argument("--note-author", help="author for --note")
 
@@ -476,6 +553,10 @@ def _cli():
     ctx = sub.add_parser("context", help="print patient context (demographics + notes + recent readings)")
     ctx.add_argument("--patient", required=True)
     ctx.add_argument("--recent", type=int, default=3, help="how many recent readings to show")
+
+    bl = sub.add_parser("baseline", help="show a patient's computed per-feature baseline")
+    bl.add_argument("--patient", required=True)
+    bl.add_argument("--min-n", type=int, default=3, help="min samples per feature")
 
     lst = sub.add_parser("list", help="list a patient's readings")
     lst.add_argument("--patient", required=True)
@@ -494,8 +575,10 @@ def _cli():
             ap.error("provide --reading and/or --voice")
         pid = insert_patient(args.patient, db_path=args.db)
         rid = insert_reading(pid, reading=reading, voice=voice,
-                             source=args.source, db_path=args.db)
+                             source=args.source, is_baseline=args.baseline, db_path=args.db)
         legs = "+".join(x for x, on in (("heart", reading), ("voice", voice)) if on)
+        if args.baseline:
+            legs += " [baseline]"
         if decision is not None:
             insert_fatigue_decision(rid, _normalize_decision(decision), db_path=args.db)
             legs += "+fatigue"
@@ -520,6 +603,20 @@ def _cli():
     if args.cmd == "context":
         text = format_patient_context(args.patient, recent=args.recent, db_path=args.db)
         print(text or f"No patient {args.patient}")
+        return
+
+    if args.cmd == "baseline":
+        p = get_patient(args.patient, db_path=args.db)
+        if not p:
+            print(f"No patient {args.patient}")
+            return
+        bl = get_baseline(p["id"], min_n=args.min_n, db_path=args.db)
+        print(f"{args.patient} (id={p['id']}) baseline from {bl['n_readings']} "
+              f"{bl['source']} reading(s):")
+        if not bl["features"]:
+            print(f"  (not enough data — need >= {args.min_n} samples per feature)")
+        for c, s in bl["features"].items():
+            print(f"  {c:20} mean={s['mean']}  std={s['std']}  n={s['n']}")
         return
 
     if args.cmd == "list":

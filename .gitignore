@@ -44,3 +44,4 @@ enroll.wav
 vitals-ar-ios/build/
 xcuserdata/
 *.xcuserstate
+vitals-dashboard/public/agenda_state.json

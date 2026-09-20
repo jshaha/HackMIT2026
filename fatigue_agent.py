@@ -18,10 +18,16 @@ The "loop": low signal quality or a missing leg -> next_action="recheck"
 (inconclusive, re-capture) rather than a false-confident verdict. Not fatigued
 -> "continue" (keep monitoring). Fatigued -> "halt" (flag the session).
 
+Pass --patient to score each feature against that patient's *personal baseline*
+(mean/std from their rested/non-fatigued readings in the DB) instead of absolute
+population cutoffs — fatigue is within-subject, so this is the main accuracy lever.
+Falls back to absolute cutoffs when no baseline exists.
+
 Run in any env with numpy (papagei_env or rppg both work):
     python fatigue_agent.py \
         --reading vitals-dashboard/public/reading.json \
         --voice voice_features.json \
+        --patient P001 \
         --out decision.json
 """
 import argparse
@@ -55,6 +61,24 @@ def _clip01(x):
     return float(min(1.0, max(0.0, x)))
 
 
+Z_FULL = 2.0   # deviation (in std) at which a personal-baseline contribution saturates to 1.0
+
+
+def _z_contrib(val, base, direction):
+    """Map `val`'s deviation from the patient's personal baseline to a fatigue
+    contribution in [0,1]. direction: 'hi' = fatigue when above baseline,
+    'lo' = below, 'abs' = either extreme. None if the baseline std is unusable."""
+    sd = base.get("std", 0.0)
+    if sd <= 1e-6:
+        return None
+    z = (val - base["mean"]) / sd
+    if direction == "lo":
+        z = -z
+    elif direction == "abs":
+        z = abs(z)
+    return _clip01(z / Z_FULL)
+
+
 def load(path):
     if path and os.path.exists(path):
         with open(path) as f:
@@ -62,27 +86,79 @@ def load(path):
     return None
 
 
-def fuse(reading, voice):
-    """Weighted fusion of available fatigue markers -> (score, factors, quality)."""
+def _load_baseline(patient_code, db_path):
+    """Fetch the patient's personal baseline from the DB, or None. Never fatal —
+    a missing DB / patient / import just means we fall back to absolute cutoffs."""
+    if not patient_code:
+        return None
+    try:
+        import db
+        p = db.get_patient(patient_code, db_path=db_path)
+        if not p:
+            print(f"[agent] patient {patient_code} not in {db_path}; using absolute cutoffs.")
+            return None
+        bl = db.get_baseline(p["id"], db_path=db_path)
+        if not bl.get("features"):
+            print(f"[agent] no usable baseline for {patient_code} "
+                  f"({bl.get('n_readings', 0)} reading(s)); using absolute cutoffs.")
+            return None
+        return bl
+    except Exception as e:
+        print(f"[agent] baseline unavailable ({e}); using absolute cutoffs.")
+        return None
+
+
+def _baseline_summary(baseline, n_personal):
+    """Compact, JSON-friendly note of how the baseline was applied."""
+    if not baseline:
+        return {"used": False, "features_scored": 0}
+    return {
+        "used": n_personal > 0,
+        "features_scored": n_personal,
+        "source": baseline.get("source"),
+        "from_readings": baseline.get("n_readings"),
+    }
+
+
+def fuse(reading, voice, baseline=None):
+    """Weighted fusion of available fatigue markers -> (score, factors, sqi, n_personal).
+
+    When a per-patient `baseline` (from db.get_baseline) covers a feature, that
+    feature is scored as a personal deviation (z-score); otherwise it uses the
+    absolute cutoff. With no baseline the result is identical to the absolute-only
+    version. `factors` tags each contribution [personal] or (absolute wording)."""
+    bf = (baseline or {}).get("features", {})
     factors = []          # human-readable contributions
     parts = []            # (weight, value_in_0_1)
+    n_personal = 0        # how many features scored against the personal baseline
 
     sqi = None
     if reading:
         sqi = reading.get("sqi")
         hr = reading.get("hr")
-        br = reading.get("br")
         rmssd = (reading.get("hrv") or {}).get("rmssd")
+        br = reading.get("br")
+        if br is None:
+            br = (reading.get("hrv") or {}).get("breathingrate")
 
         # Low HRV (RMSSD) tracks fatigue/strain when available.
         if rmssd is not None:
-            v = _clip01(1 - rmssd / 50.0)   # 50 ms ~ healthy; lower -> fatigue
-            parts.append((0.20, v))
-            factors.append(f"HRV RMSSD {rmssd} ms -> {'low' if v>0.5 else 'ok'}")
+            z = _z_contrib(rmssd, bf["hrv_rmssd"], "lo") if "hrv_rmssd" in bf else None
+            if z is not None:
+                parts.append((0.20, z)); n_personal += 1
+                factors.append(f"HRV RMSSD {rmssd} ms [personal] -> {round(z,2)}")
+            else:
+                v = _clip01(1 - rmssd / 50.0)   # 50 ms ~ healthy; lower -> fatigue
+                parts.append((0.20, v))
+                factors.append(f"HRV RMSSD {rmssd} ms -> {'low' if v>0.5 else 'ok'}")
 
-        # Resting-low HR + drowsiness, or very high HR (strain) both notable.
+        # HR: personal deviation either way; else absolute (only flags extremes).
         if hr is not None:
-            if hr < 55:
+            z = _z_contrib(hr, bf["hr"], "abs") if "hr" in bf else None
+            if z is not None:
+                parts.append((0.10, z)); n_personal += 1
+                factors.append(f"HR {hr} BPM [personal] -> {round(z,2)}")
+            elif hr < 55:
                 parts.append((0.10, _clip01((55 - hr) / 20.0)))
                 factors.append(f"HR {hr} BPM (low)")
             elif hr > 100:
@@ -91,14 +167,19 @@ def fuse(reading, voice):
             else:
                 factors.append(f"HR {hr} BPM (normal)")
 
-        # Abnormal breathing rate (very slow = drowsy, very fast = distress).
+        # Breathing rate: personal deviation either way; else absolute extremes.
         if br is not None:
-            dev = max(0.0, (10 - br) / 6.0, (br - 20) / 12.0)
-            if dev > 0:
-                parts.append((0.10, _clip01(dev)))
-                factors.append(f"BR {br}/min (abnormal)")
+            z = _z_contrib(br, bf["hrv_breathingrate"], "abs") if "hrv_breathingrate" in bf else None
+            if z is not None:
+                parts.append((0.10, z)); n_personal += 1
+                factors.append(f"BR {br}/min [personal] -> {round(z,2)}")
             else:
-                factors.append(f"BR {br}/min (normal)")
+                dev = max(0.0, (10 - br) / 6.0, (br - 20) / 12.0)
+                if dev > 0:
+                    parts.append((0.10, _clip01(dev)))
+                    factors.append(f"BR {br}/min (abnormal)")
+                else:
+                    factors.append(f"BR {br}/min (normal)")
 
     if voice:
         fi = voice.get("fatigue_index")
@@ -106,22 +187,32 @@ def fuse(reading, voice):
         pause = voice.get("pause_ratio")
         rate = voice.get("speech_rate_hz")
         if fi is not None:
-            parts.append((0.40, _clip01(fi)))
-            factors.append(f"voice fatigue_index {fi}")
+            z = _z_contrib(fi, bf["fatigue_index"], "hi") if "fatigue_index" in bf else None
+            if z is not None:
+                parts.append((0.40, z)); n_personal += 1
+                factors.append(f"voice fatigue_index {fi} [personal] -> {round(z,2)}")
+            else:
+                parts.append((0.40, _clip01(fi)))
+                factors.append(f"voice fatigue_index {fi}")
         if ar is not None:
-            parts.append((0.20, _clip01(1 - ar)))
-            factors.append(f"voice arousal_index {ar} ({'low' if ar<0.4 else 'ok'})")
+            z = _z_contrib(ar, bf["arousal_index"], "lo") if "arousal_index" in bf else None
+            if z is not None:
+                parts.append((0.20, z)); n_personal += 1
+                factors.append(f"voice arousal_index {ar} [personal] -> {round(z,2)}")
+            else:
+                parts.append((0.20, _clip01(1 - ar)))
+                factors.append(f"voice arousal_index {ar} ({'low' if ar<0.4 else 'ok'})")
         if pause is not None and pause > 0.35:
             factors.append(f"long pauses (pause_ratio {pause})")
         if rate is not None and rate < 2.5:
             factors.append(f"slow speech ({rate} syl/s)")
 
     if not parts:
-        return None, ["no usable signals"], sqi
+        return None, ["no usable signals"], sqi, 0
 
     total_w = sum(w for w, _ in parts)
     score = sum(w * v for w, v in parts) / total_w
-    return _clip01(score), factors, sqi
+    return _clip01(score), factors, sqi, n_personal
 
 
 def decide(score, factors, sqi, have_reading, have_voice):
@@ -253,14 +344,23 @@ def main():
     ap.add_argument("--reading", default="vitals-dashboard/public/reading.json")
     ap.add_argument("--voice", default="voice_features.json")
     ap.add_argument("--out", default="decision.json")
+    ap.add_argument("--patient", help="patient_code -> score against their personal baseline")
+    ap.add_argument("--db", default=os.environ.get("VITALS_DB", "vitals.db"),
+                    help="SQLite DB for baselines (default vitals.db / $VITALS_DB)")
     ap.add_argument("--no-llm", action="store_true", help="skip the Claude layer")
     args = ap.parse_args()
 
     reading = load(args.reading)
     voice = load(args.voice)
 
-    score, factors, sqi = fuse(reading, voice)
+    baseline = _load_baseline(args.patient, args.db)
+
+    score, factors, sqi, n_personal = fuse(reading, voice, baseline)
     verdict = decide(score, factors, sqi, reading is not None, voice is not None)
+    verdict["baseline"] = _baseline_summary(baseline, n_personal)
+    # A personal baseline is more trustworthy than absolute cutoffs -> nudge confidence.
+    if n_personal and verdict.get("too_fatigued") is not None:
+        verdict["confidence"] = round(_clip01(verdict["confidence"] * 1.1), 2)
 
     engine = "rule-core"
     if not args.no_llm:
@@ -291,6 +391,12 @@ def main():
     print(f"║ Next action : {v.get('next_action').upper()}")
     print(f"║ Engine      : {engine}")
     print(f"║ Legs used   : heart={v['inputs']['heart_leg']} voice={v['inputs']['voice_leg']}")
+    b = v.get("baseline", {})
+    if b.get("used"):
+        print(f"║ Baseline    : personal ({b['features_scored']} feats "
+              f"from {b['from_readings']} {b.get('source')} reading(s))")
+    else:
+        print("║ Baseline    : absolute cutoffs (no personal baseline)")
     print("║ Why         :")
     print(f"║   {v.get('reasoning')}")
     for fct in v.get("key_factors", []):

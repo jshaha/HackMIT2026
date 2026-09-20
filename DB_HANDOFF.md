@@ -49,6 +49,28 @@ prompt_block = db.format_patient_context("P001") # ready-to-paste text for the L
 id (int). The agentic loop should call `format_patient_context(code)` and prepend
 the returned block to its prompt before deciding `too_fatigued`.
 
+## Per-patient baselines (personal z-scoring)
+Fatigue is within-subject, so `fatigue_agent.py --patient CODE` scores each feature
+against the patient's own baseline (mean/std) instead of absolute population
+cutoffs. Purely additive: with no baseline the agent behaves exactly as before.
+```bash
+python db.py ingest   --patient P001 --voice rested.json --baseline   # tag a rested capture
+python db.py baseline --patient P001                                   # inspect mean/std/n
+python fatigue_agent.py --reading reading.json --voice voice_features.json --patient P001
+```
+```python
+bl = db.get_baseline(pid)   # {"n_readings", "source", "features": {col: {mean,std,n}}}
+```
+- **Baseline set:** readings tagged `is_baseline=1` if any exist; else the patient's
+  prior non-fatigued readings (`too_fatigued` not = 1). Needs **≥3 samples/feature**
+  (`min_n`) with non-zero std, else that feature uses the absolute cutoff.
+- **Features baselined:** `hr, hrv_rmssd, hrv_sdnn, hrv_breathingrate` (heart) and
+  `fatigue_index, arousal_index, pause_ratio, speech_rate_hz, shimmer_pct` (voice).
+- **Schema:** `readings.is_baseline` (added by an auto-migration in `init_db` for
+  older DBs — no manual step). `decision.json` now carries a `baseline` summary block.
+- **Caveat:** with few, tightly-clustered baseline captures the std is tiny, so small
+  deviations saturate. Prefer 5+ baseline captures spanning normal daily variation.
+
 ## Library API (for export_reading.py / voice_decoder.py)
 ```python
 import db
