@@ -81,21 +81,36 @@ def _emotion(voice):
     }
 
 
-def _transcript_context():
-    """Recent conversation context from the live transcript, for the AR 'context
-    aware' panel — what's actually been discussed so far, not the fatigue call."""
+def _next_recommendation():
+    """The 'context aware' panel: what to DO / DISCUSS next, reasoned from the
+    conversation so far — the oversight engine's guidance (symptoms mentioned but
+    not recorded, required steps missing) plus agenda topics still uncovered
+    (which are derived from what has/hasn't been said). Returns (summary, insights)."""
     import os
-    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                        "vitals-dashboard", "public", "transcript.json")
-    try:
-        with open(path) as f:
-            text = (json.load(f).get("text") or "").strip()
-    except Exception:
-        return None
-    if not text:
-        return None
-    tail = text[-260:].strip()
-    return ("…" + tail) if len(text) > 260 else tail
+    pub = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "vitals-dashboard", "public")
+
+    def _load(name):
+        try:
+            with open(os.path.join(pub, name)) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    recs = []
+    # Oversight: most actionable first (a symptom mentioned but not filed, a
+    # required activity missing, etc.).
+    for c in _load("oversight_state.json").get("checks", []):
+        if c.get("status") in ("warn", "fail") and c.get("guidance"):
+            recs.append(c["guidance"])
+    # Agenda: what's still to raise (topics not yet covered in the conversation).
+    pending = _load("agenda_state.json").get("pending") or []
+    if pending:
+        recs.append("Raise next: " + "; ".join(pending[:2]))
+
+    if not recs:
+        return None, []
+    return recs[0], recs[1:3]
 
 
 def to_update(reading, notes=None):
@@ -122,13 +137,16 @@ def to_update(reading, notes=None):
             "confidence": fat.get("confidence"),
             "drivers": list(dict.fromkeys(filter(None, map(_short_factor, factors))))[:3],
         }
-        action = {"halt": "Recommend pausing", "recheck": "Monitoring", "continue": "OK to continue"}
-        insights = [action.get(fat.get("next_action"), "")] + [f.split(" -> ")[0] for f in factors[:1]]
-        # 'Context aware' shows the conversation so far (falls back to the
-        # fatigue reasoning only before anything has been transcribed).
-        conv = _transcript_context()
-        u["context"] = {"summary": conv or fat.get("reasoning"),
-                        "insights": [i for i in insights if i]}
+        # 'Context aware' = recommend what to do / discuss next, reasoned from the
+        # conversation (oversight guidance + uncovered agenda topics). Falls back
+        # to a neutral prompt before anything has been discussed.
+        rec_summary, rec_insights = _next_recommendation()
+        action = {"halt": "Recommend pausing the session", "recheck": "Keep monitoring",
+                  "continue": "Safe to continue"}
+        u["context"] = {
+            "summary": rec_summary or "Continue the visit; no outstanding items detected.",
+            "insights": [i for i in ([action.get(fat.get("next_action"), "")] + rec_insights) if i],
+        }
 
     voice = reading.get("voice")
     if voice:

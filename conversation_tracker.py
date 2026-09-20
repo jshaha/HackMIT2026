@@ -379,6 +379,46 @@ def summarize_visit(patient, transcript, items, duration_s, out_path=SUMMARY_PAT
 summarize_visit._topics = []  # optional topic hint for standalone --summarize
 
 
+def _has_speech(path, min_rms=0.009):
+    """True only if the chunk has real speech energy. Gates out silence so
+    Whisper doesn't hallucinate (on quiet audio it invents YouTube-caption
+    phrases like 'thanks for watching, subscribe', emojis and all)."""
+    import numpy as np
+    import soundfile as sf
+    try:
+        x, _ = sf.read(path)
+        if getattr(x, "ndim", 1) > 1:
+            x = x.mean(axis=1)
+        return float(np.sqrt(np.mean(x ** 2) + 1e-12)) >= min_rms
+    except Exception:
+        return True   # if unsure, let it through
+
+
+import re as _re
+_EMOJI = _re.compile(
+    "[\U0001F000-\U0001FAFF\U00002600-\U000027BF\U0001F1E6-\U0001F1FF"
+    "←-⇿⌀-⏿⬀-⯿︀-️]")
+_HALLUCINATION_MARKERS = (
+    "thanks for watching", "thank you for watching", "subscribe",
+    "like and subscribe", "see you next time", "see you in the next",
+    "don't forget to", "my channel", "for watching", "see you guys",
+)
+
+
+def _clean_transcription(text):
+    """Strip emojis and drop chunks that are Whisper silence-hallucinations.
+    Returns '' if the text should be discarded."""
+    t = _EMOJI.sub("", text or "").strip()
+    low = t.lower()
+    if not low:
+        return ""
+    if any(m in low for m in _HALLUCINATION_MARKERS):
+        return ""
+    if low in ("thank you.", "thank you", "you", "bye.", "bye", "."):
+        return ""
+    return t
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--patient", default="P001")
@@ -443,8 +483,11 @@ def main():
     try:
         while True:
             record(args.mic, args.chunk_seconds, tmp)
+            if not _has_speech(tmp):
+                print("[voice] (silence — skipped)")
+                continue
             try:
-                text = transcribe(tmp, key)
+                text = _clean_transcription(transcribe(tmp, key))
             except Exception as e:
                 print(f"[whisper] error: {e}")
                 continue
