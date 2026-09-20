@@ -283,16 +283,33 @@ struct OverlayView: View {
 
     // MARK: Face outline + leader lines
 
-    private func drawOutlineAndLeaders(_ ctx: GraphicsContext, design: [String: CGRect], t: Double) {
-        guard let face = scene.face, face.outline.count > 3 else { return }
-        let glow = Color(red: 0.3, green: 0.95, blue: 0.8) // bright teal: these lines sit on the camera image, not on frost
-        var outline = Path()
-        outline.addLines(face.outline)
-        outline.closeSubpath()
-        ctx.stroke(outline, with: .color(glow.opacity(0.12)), style: StrokeStyle(lineWidth: 6, lineJoin: .round))
-        ctx.stroke(outline, with: .color(.white.opacity(0.7)), style: StrokeStyle(lineWidth: 1.2, lineJoin: .round))
+    /// Where a ray leaving `origin` in direction `dir` crosses the edge of `rect`.
+    private static func exit(from origin: CGPoint, toward dir: CGVector, of rect: CGRect) -> CGPoint {
+        var k = CGFloat.greatestFiniteMagnitude
+        if abs(dir.dx) > 1e-6 { k = min(k, ((dir.dx > 0 ? rect.maxX : rect.minX) - origin.x) / dir.dx) }
+        if abs(dir.dy) > 1e-6 { k = min(k, ((dir.dy > 0 ? rect.maxY : rect.minY) - origin.y) / dir.dy) }
+        guard k.isFinite else { return origin }
+        return CGPoint(x: origin.x + dir.dx * k, y: origin.y + dir.dy * k)
+    }
 
-        // Each metric panel gets a line from the nearest point on the outline (in its direction) to its inner edge.
+    private func drawOutlineAndLeaders(_ ctx: GraphicsContext, design: [String: CGRect], t: Double) {
+        guard let face = scene.face else { return }
+        let glow = Color(red: 0.3, green: 0.95, blue: 0.8) // bright teal: these lines sit on the camera image, not on frost
+        // The patient is framed by four corner brackets, the way a camera frames a subject — enough to say
+        // "this is who we're reading" without tracing their face or dressing the view up as a scanner.
+        let frame = face.rect.insetBy(dx: -face.rect.width * 0.1, dy: -face.rect.height * 0.08)
+        let arm = min(frame.width, frame.height) * 0.22
+        var brackets = Path()
+        for (cx, cy) in [(frame.minX, frame.minY), (frame.maxX, frame.minY), (frame.maxX, frame.maxY), (frame.minX, frame.maxY)] {
+            let sx: CGFloat = cx == frame.minX ? 1 : -1, sy: CGFloat = cy == frame.minY ? 1 : -1
+            brackets.move(to: CGPoint(x: cx + sx * arm, y: cy))
+            brackets.addLine(to: CGPoint(x: cx, y: cy))
+            brackets.addLine(to: CGPoint(x: cx, y: cy + sy * arm))
+        }
+        ctx.stroke(brackets, with: .color(.black.opacity(0.22)), style: StrokeStyle(lineWidth: 4, lineCap: .round, lineJoin: .round))
+        ctx.stroke(brackets, with: .color(Palette.accent.opacity(0.85)), style: StrokeStyle(lineWidth: 1.6, lineCap: .round, lineJoin: .round))
+
+        // Each metric panel gets a line from the edge of that frame, in the panel's direction, to its inner edge.
         let c = face.center
         let edges: [(String, (Quad) -> CGPoint)] = [
             ("vitals", { $0.leftMid }), ("fatigue", { $0.leftMid }), ("emotion", { $0.leftMid }), ("context", { $0.topMid }),
@@ -302,10 +319,7 @@ struct OverlayView: View {
             let end = edge(scene.quads[id] ?? Quad(rect: rect))
             let dir = CGVector(dx: end.x - c.x, dy: end.y - c.y)
             let len = max(1, hypot(dir.dx, dir.dy))
-            let start = face.outline.max { a, b in
-                ((a.x - c.x) * dir.dx + (a.y - c.y) * dir.dy) / max(1, hypot(a.x - c.x, a.y - c.y))
-                    < ((b.x - c.x) * dir.dx + (b.y - c.y) * dir.dy) / max(1, hypot(b.x - c.x, b.y - c.y))
-            }!
+            let start = Self.exit(from: c, toward: dir, of: frame)
             guard hypot(end.x - start.x, end.y - start.y) > 12, len > 1 else { continue }
             var line = Path()
             line.move(to: start)
@@ -396,7 +410,7 @@ private struct StatusBar: View {
         .padding(.horizontal, 12).padding(.vertical, 6)
         .foregroundStyle(Palette.ink)
         .background(.ultraThinMaterial, in: Capsule())
-        .background(Color.white.opacity(0.5), in: Capsule())
+        .background(Palette.glassFill, in: Capsule())
         .overlay(Capsule().stroke(Palette.glassEdge))
     }
 

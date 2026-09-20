@@ -7,7 +7,6 @@ struct VitalsARApp: App {
             ContentView()
                 .statusBarHidden()
                 .persistentSystemOverlays(.hidden)
-                .preferredColorScheme(.light)
         }
     }
 }
@@ -20,7 +19,9 @@ struct ContentView: View {
     @AppStorage("useBackend") private var useBackend = false
     @AppStorage("allowWiFi") private var allowWiFi = false
     @AppStorage("panelScale") private var panelScale = 0.72
+    @AppStorage("darkGlass") private var darkGlass = true
     @State private var showSettings = false
+    @State private var themeTick = 0
     @Environment(\.scenePhase) private var scenePhase
     @State private var screen = CGSize(width: 844, height: 390)
     @State private var insets = EdgeInsets()
@@ -44,6 +45,10 @@ struct ContentView: View {
         )
         .onChange(of: store.agenda) { _, items in if let items { plan.syncAgenda(items) } }
         .onChange(of: panelScale) { _, _ in updateDesign() }
+        // Palette is read at draw time, so switching themes means rebuilding the overlay.
+        .onChange(of: darkGlass) { _, on in Palette.isDark = on; themeTick += 1 }
+        .id(themeTick)
+        .preferredColorScheme(Palette.colorScheme)
         .onChange(of: plan.topics.count) { _, _ in updateDesign() }
         .onChange(of: scenePhase) { _, phase in
             // iOS tears down the phone link's listener in the background; bring it back when we return.
@@ -59,7 +64,8 @@ struct ContentView: View {
             mic.start()
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(useBackend: $useBackend, allowWiFi: $allowWiFi, panelScale: $panelScale, connection: store.connection, plan: plan,
+            SettingsView(useBackend: $useBackend, allowWiFi: $allowWiFi, panelScale: $panelScale, darkGlass: $darkGlass,
+                         connection: store.connection, plan: plan,
                          resetPanels: { scene.resetOffsets() }) {
                 showSettings = false
                 connect()
@@ -88,6 +94,7 @@ struct SettingsView: View {
     @Binding var useBackend: Bool
     @Binding var allowWiFi: Bool
     @Binding var panelScale: Double
+    @Binding var darkGlass: Bool
     let connection: VitalsStore.Connection
     @ObservedObject var plan: VisitPlan
     let resetPanels: () -> Void
@@ -109,6 +116,11 @@ struct SettingsView: View {
                         Text("Panel size: \(Int(panelScale * 100))%").font(.footnote).foregroundStyle(.secondary)
                         Slider(value: $panelScale, in: 0.6...1.2, step: 0.02)
                     }
+                    Picker("Panels", selection: $darkGlass) {
+                        Text("Dark glass").tag(true)
+                        Text("Light frost").tag(false)
+                    }
+                    .pickerStyle(.segmented)
                     Button("Reset panel positions", action: resetPanels)
                     Button("Start new visit") {
                         plan.topicsText = topicsText
