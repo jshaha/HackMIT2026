@@ -310,7 +310,7 @@ def autofill_ae_cm(cdms, subject, visit, transcript_text):
 # main pass
 # --------------------------------------------------------------------------- #
 
-def run(subject, visit, transcript_path=None, root="veeva"):
+def run(subject, visit, transcript_path=None, root="veeva", auto_confirm=True):
     cdms = VaultCDMS(root=root)
 
     reading = _read_json(READING) or {}
@@ -325,6 +325,14 @@ def run(subject, visit, transcript_path=None, root="veeva"):
     autofill_pro(cdms, subject, visit, reading)
     extracted = autofill_ae_cm(cdms, subject, visit, transcript_text)
 
+    # Auto-sign: e-sign each form that received auto-filled data so there's no
+    # manual clinician sign-off step (signer = automated capture). --draft-only
+    # keeps the ALCOA clinician-confirm flow instead.
+    if auto_confirm:
+        for f in cdms.get_forms(subject, visit):
+            if any(fld.get("status") == "draft" for fld in f.get("fields", [])):
+                cdms.confirm_form(subject, visit, f["form"], signer="auto-capture")
+
     # publish the whole EDC picture: ALL forms required at the visit, empties too
     forms = cdms.get_forms(subject, visit)
     out = {
@@ -337,8 +345,11 @@ def run(subject, visit, transcript_path=None, root="veeva"):
     _atomic_write(EDC_OUT, out)
 
     n_draft = sum(1 for f in forms for fld in f["fields"] if fld["status"] == "draft")
-    print(f"[autofill] {subject}/{visit}: wrote {EDC_OUT}")
-    print(f"[autofill] forms={[f['form'] for f in forms]} draft_fields={n_draft} "
+    n_signed = sum(1 for f in forms for fld in f["fields"] if fld["status"] == "confirmed")
+    print(f"[autofill] {subject}/{visit}: wrote {EDC_OUT} "
+          f"({'auto-signed' if auto_confirm else 'draft-only'}: "
+          f"{n_signed} confirmed, {n_draft} draft)")
+    print(f"[autofill] forms={[f['form'] for f in forms]} "
           f"extract_engine={extracted.get('engine')} "
           f"AE={len(extracted.get('adverse_events', []))} "
           f"CM={len(extracted.get('concomitant_meds', []))}")
@@ -352,8 +363,11 @@ def main():
     ap.add_argument("--transcript", default=None,
                     help=f"transcript json path (default {TRANSCRIPT})")
     ap.add_argument("--root", default="veeva")
+    ap.add_argument("--draft-only", action="store_true",
+                    help="keep the clinician confirm/e-sign flow instead of auto-signing")
     args = ap.parse_args()
-    run(args.subject, args.visit, transcript_path=args.transcript, root=args.root)
+    run(args.subject, args.visit, transcript_path=args.transcript, root=args.root,
+        auto_confirm=not args.draft_only)
 
 
 if __name__ == "__main__":

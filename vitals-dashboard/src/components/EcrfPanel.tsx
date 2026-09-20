@@ -67,7 +67,7 @@ export function EcrfPanel({ edc }: { edc: EdcForms }) {
           totalDrafts > 0 ? "bg-amber-100 text-amber-800" : "bg-emerald-50 text-emerald-700"
         }`}
       >
-        {totalDrafts > 0 ? `${totalDrafts} drafts pending sign-off` : "all drafts signed off"}
+        {totalDrafts > 0 ? `${totalDrafts} drafts pending sign-off` : "auto-filled & e-signed"}
       </div>
 
       <div className="mt-4 flex flex-col gap-4">
@@ -121,7 +121,7 @@ function FormCard({
           </button>
         ) : (
           <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-medium text-emerald-700">
-            {isSigned ? "✓ e-signed" : "no drafts"}
+            {(form.fields ?? []).some((f) => f.status === "confirmed") || isSigned ? "✓ e-signed" : "empty"}
           </span>
         )}
       </div>
