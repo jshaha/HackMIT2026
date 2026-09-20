@@ -11,8 +11,8 @@ simply hold your hand over it; it lights up, and a **pinch anywhere in view** ac
 **Pinch and hold, then move** to pick a panel up and reposition it — the grab bar on its lower edge shows when
 it's ready. ⚙︎ also holds panel size (a single slider, 60–120%, 72% by default — every card is laid out at
 its natural size and scaled, so the overlay resizes without anything re-flowing) and the theme: **dark glass**
-(the default: charcoal cards, white text, neon teal) or **light frost**. The patient is framed by four corner
-brackets rather than a traced outline, with a line running from that frame out to each metric.
+(the default: charcoal cards, white text, neon teal) or **light frost**. The patient is framed by a soft oval
+of four arcs, with a line running from that frame out to each metric.
 
 The **iPhone is the sensor**: the app streams its rear-camera frames and mic audio to the Mac over the USB
 cable, the Mac runs the pipeline, and the vitals come back to the phone on the same connection. No Mac camera
