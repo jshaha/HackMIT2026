@@ -2,12 +2,21 @@ import { useEffect, useState } from "react"
 import { animate, useMotionValue } from "motion/react"
 
 /** Springs a number from 0 (or previous) to `value`, returns the live display value. */
-export function useAnimatedNumber(value: number, opts?: { duration?: number; decimals?: number; delay?: number }) {
-  const { duration = 1.2, decimals = 0, delay = 0 } = opts ?? {}
+export function useAnimatedNumber(
+  value: number,
+  opts?: { duration?: number; decimals?: number; delay?: number; instant?: boolean },
+) {
+  const { duration = 1.2, decimals = 0, delay = 0, instant = false } = opts ?? {}
   const mv = useMotionValue(0)
   const [display, setDisplay] = useState(0)
 
   useEffect(() => {
+    // Live mode: snap straight to the new value (no re-tween on every poll).
+    if (instant) {
+      mv.set(value)
+      setDisplay(+value.toFixed(decimals))
+      return
+    }
     const controls = animate(mv, value, {
       duration,
       delay,
@@ -15,7 +24,7 @@ export function useAnimatedNumber(value: number, opts?: { duration?: number; dec
       onUpdate: (v) => setDisplay(+v.toFixed(decimals)),
     })
     return controls.stop
-  }, [value, duration, decimals, delay, mv])
+  }, [value, duration, decimals, delay, instant, mv])
 
   return display
 }

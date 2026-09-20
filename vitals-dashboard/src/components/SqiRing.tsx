@@ -5,6 +5,7 @@ import { useAnimatedNumber } from "@/hooks/useAnimatedNumber"
 interface SqiRingProps {
   sqi: number // 0..1
   size?: number
+  live?: boolean
 }
 
 // Sequential single-hue mapping: strong = arterial red, weaker = muted.
@@ -20,9 +21,9 @@ function sqiLabel(sqi: number) {
 }
 
 /** Bklit RingChart as a signal-quality gauge, flat and glow-free. */
-export function SqiRing({ sqi, size = 168 }: SqiRingProps) {
+export function SqiRing({ sqi, size = 168, live = false }: SqiRingProps) {
   const color = sqiColor(sqi)
-  const pct = useAnimatedNumber(sqi * 100, { duration: 1.4, decimals: 0, delay: 0.3 })
+  const pct = useAnimatedNumber(sqi * 100, { duration: 1.4, decimals: 0, delay: 0.3, instant: live })
   const data = [{ label: "SQI", value: sqi, maxValue: 1, color }]
 
   return (

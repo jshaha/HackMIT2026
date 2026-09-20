@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, motion, MotionConfig } from "motion/react"
 import { PulseWave } from "@/components/PulseWave"
 import { SqiRing } from "@/components/SqiRing"
 import { HrTrendChart } from "@/components/HrTrendChart"
@@ -85,6 +85,7 @@ export default function App() {
     decimals: 1,
     duration: live ? 0.6 : 1.4,
     delay: live ? 0 : 0.4,
+    instant: live,
   })
 
   function apply(data: Reading) {
@@ -159,6 +160,9 @@ export default function App() {
   const faceEmotion = reading.face_emotion
 
   return (
+    // In live mode, disable framer-motion entrance/transform animations so
+    // panels update their values in place instead of re-animating each poll.
+    <MotionConfig reducedMotion={live ? "always" : "never"}>
     <div className="mx-auto max-w-[1180px] px-6 py-10 md:px-10 md:py-14">
       {/* ── unmissable too-fatigued cue (pulsing border + banner) ── */}
       {reading.fatigue && <FatigueAlertOverlay fatigue={reading.fatigue} />}
@@ -248,7 +252,7 @@ export default function App() {
               </div>
             )}
             <FieldLabel>Signal quality</FieldLabel>
-            <SqiRing sqi={reading.sqi} />
+            <SqiRing sqi={reading.sqi} live={live} />
             <p className="max-w-[24ch] text-center text-[13px] leading-relaxed text-[color:var(--color-ink-mute)]">
               {locked ? "Lock acquired — HRV metrics computed." : "Low confidence — hold still, improve lighting."}
             </p>
@@ -387,5 +391,6 @@ export default function App() {
         </span>
       </footer>
     </div>
+    </MotionConfig>
   )
 }

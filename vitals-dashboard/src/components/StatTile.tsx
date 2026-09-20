@@ -18,6 +18,7 @@ export function StatTile({ label, value, unit, decimals = 0, delay = 0, hint, li
     decimals,
     delay: live ? 0 : delay + 0.15,
     duration: live ? 0.6 : 1,
+    instant: live,
   })
 
   return (
