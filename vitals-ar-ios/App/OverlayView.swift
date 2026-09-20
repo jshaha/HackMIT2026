@@ -14,12 +14,20 @@ struct OverlayView: View {
     /// metrics inside `body` forces a re-entrant layout and SwiftUI stops updating the view.)
     let size: CGSize
     let inset: EdgeInsets
+    /// Overall panel size, from Settings (0.6–1.2).
+    let scale: CGFloat
     var openSettings: () -> Void
 
     @State private var visitFrames: [VisitTarget: CGRect] = [:]
     @State private var checking: Set<UUID> = []
-    @State private var hover: VisitTarget?
+    /// What a pinch would act on: the panel you're aiming at (screen centre, like gaze on Vision Pro) or the
+    /// one your hand is over, plus the control within it.
+    private struct Focus: Equatable {
+        var panel: String?
+        var control: VisitTarget?
+    }
     @State private var pinch: PinchState?
+    @State private var pinchFlash = false
     @State private var touchDrag: (id: String, start: CGSize)?
 
     /// A pinch in progress: a quick pinch activates what's under it; pinch-and-move drags the panel.
@@ -27,7 +35,7 @@ struct OverlayView: View {
         var start: CGPoint
         var panel: String?
         var startOffset: CGSize
-        var target: VisitTarget?
+        var focus: Focus
         var began = Date()
         var last: CGPoint
         var dragging = false
@@ -44,11 +52,12 @@ struct OverlayView: View {
     private static let hitOrder = ["visit", "emotion", "fatigue", "vitals", "context"]
 
     var body: some View {
-        let base = Layout.design(size: size, inset: inset)
+        let base = Layout.design(size: size, inset: inset, scale: scale, topics: plan.topics.count)
         let design = Dictionary(uniqueKeysWithValues: base.map { id, r in
             (id, r.offsetBy(dx: scene.offsets[id]?.width ?? 0, dy: scene.offsets[id]?.height ?? 0))
         })
         let v = vitals
+        let focus = focusTarget(design: design)
 
         ZStack(alignment: .topLeading) {
             TimelineView(.animation(minimumInterval: 1 / 30)) { tl in
@@ -56,25 +65,27 @@ struct OverlayView: View {
             }
             .allowsHitTesting(false)
 
-            panel("context", design) {
+            panel("context", design, focused: focus.panel == "context") {
                 ContextCard(summary: v.contextSummary, insights: v.insights, step: v.agentStep,
                             transcript: v.transcript, speaking: v.speaking, micLevel: micLevel)
             }
-            panel("vitals", design) {
+            panel("vitals", design, focused: focus.panel == "vitals") {
                 VitalsCard(hr: v.hr, hrConfidence: v.hrConfidence, br: v.br, hrv: v.hrv, hrvHistory: hrvHistory)
             }
-            panel("fatigue", design) {
+            panel("fatigue", design, focused: focus.panel == "fatigue") {
                 FatigueCard(score: v.fatigue, threshold: v.fatigueThreshold, confidence: v.fatigueConfidence, drivers: v.fatigueDrivers)
             }
-            panel("emotion", design) {
+            panel("emotion", design, focused: focus.panel == "emotion") {
                 EmotionCard(label: v.emotion, valence: v.valence, arousal: v.arousal, probs: v.emotionProbs, context: v.emotionContext)
             }
-            panel("visit", design) {
-                VisitCard(plan: plan, hover: hover.flatMap { if case .topic(let id) = $0 { id } else { nil } },
-                          checking: checking, pauseHover: hover == .pause)
+            panel("visit", design, focused: focus.panel == "visit") {
+                VisitCard(plan: plan, hover: focus.control.flatMap { if case .topic(let id) = $0 { id } else { nil } },
+                          checking: checking, pauseHover: focus.control == .pause)
                     .onPreferenceChange(VisitFramesKey.self) { visitFrames = $0 }
             }
 
+            AimReticle(active: focus.panel != nil, pinching: pinchFlash)
+                .position(x: size.width / 2, y: size.height / 2)
             CursorLayer(hand: scene.hand)
 
             StatusBar(connection: connection, signal: v.signalQuality, micLevel: micLevel,
@@ -84,7 +95,7 @@ struct OverlayView: View {
         }
         .frame(width: size.width, height: size.height, alignment: .topLeading)
         .contentShape(Rectangle())
-        .simultaneousGesture(SpatialTapGesture().onEnded { activate(target(at: $0.location, design: design)) })
+        .simultaneousGesture(SpatialTapGesture().onEnded { activate(target(at: $0.location, design: design) ?? focus.control) })
         .simultaneousGesture(
             // Touch fallback: drag a panel with a finger on the screen.
             DragGesture(minimumDistance: 12)
@@ -102,7 +113,7 @@ struct OverlayView: View {
                     touchDrag = nil
                 }
         )
-        .onReceive(scene.hand.$track) { track in handlePinch(track, design: design) }
+        .onReceive(scene.hand.$track) { track in handlePinch(track, design: design, focus: focus) }
         #if DEBUG
         .task { await debugPinches() }
         #endif
@@ -111,13 +122,24 @@ struct OverlayView: View {
 
     /// A flat card rendered onto its quad in the scene (or its flat design rect before anchoring).
     /// The panel being dragged is outlined in the accent colour.
-    private func panel<Content: View>(_ id: String, _ design: [String: CGRect], @ViewBuilder content: () -> Content) -> some View {
+    private func panel<Content: View>(_ id: String, _ design: [String: CGRect], focused: Bool = false,
+                                      @ViewBuilder content: () -> Content) -> some View {
         let rect = design[id] ?? .zero
         let quad = scene.quads[id] ?? Quad(rect: rect)
         let lifted = scene.dragging == id
+        let natural = Layout.naturalSize(id, screenHeight: rect.height / scale, scale: scale, topics: plan.topics.count)
         return content()
-            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(Palette.accent, lineWidth: lifted ? 2.5 : 0))
-            .frame(width: rect.width, height: rect.height)
+            .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Palette.accent.opacity(lifted ? 1 : (focused ? 0.45 : 0)), lineWidth: lifted ? 2.5 / scale : 1.5 / scale))
+            .overlay(alignment: .bottom) { // visionOS-style grab bar: pinch and move to reposition
+                Capsule().fill(Palette.ink.opacity(lifted ? 0.5 : 0.25))
+                    .frame(width: 34 / scale, height: 4 / scale)
+                    .offset(y: 9 / scale)
+                    .opacity(focused || lifted ? 1 : 0)
+            }
+            .frame(width: natural.width, height: natural.height)
+            .scaleEffect(scale, anchor: .topLeading)
+            .frame(width: rect.width, height: rect.height, alignment: .topLeading)
             .projectionEffect(Homography.projection(from: rect.size, to: quad))
     }
 
@@ -130,65 +152,74 @@ struct OverlayView: View {
         }
     }
 
-    private func handlePinch(_ track: HandTrack?, design: [String: CGRect]) {
+    /// Vision Pro-style: what you aim at is focused; a pinch anywhere acts on it. If your hand happens to be
+    /// over a panel, that takes precedence (direct touch), so both ways of pointing work.
+    private func focusTarget(design: [String: CGRect]) -> Focus {
+        let centre = CGPoint(x: size.width / 2, y: size.height / 2)
+        let handPoint = scene.hand.track?.point
+        if let p = handPoint, let id = panel(at: p, design: design) {
+            return Focus(panel: id, control: id == "visit" ? target(at: p, design: design) : nil)
+        }
+        guard let id = panel(at: centre, design: design) else { return Focus() }
+        return Focus(panel: id, control: id == "visit" ? target(at: centre, design: design, reach: 60) : nil)
+    }
+
+    private func handlePinch(_ track: HandTrack?, design: [String: CGRect], focus: Focus) {
         let pinching = track?.pinching ?? false
         if let t = track, pinching {
             if var p = pinch {
                 let jump = hypot(t.point.x - p.last.x, t.point.y - p.last.y)
                 let dx = t.point.x - p.start.x, dy = t.point.y - p.start.y
-                let moved = hypot(dx, dy)
                 if jump > Self.glitchJump {
-                    // Tracking glitch: ignore this update entirely (and never let it start a drag).
-                    if !p.dragging { p.cancelled = true }
+                    if !p.dragging { p.cancelled = true } // tracking glitch: never let it start a drag
                 } else {
                     p.last = t.point
-                    if !p.dragging, !p.cancelled, p.panel != nil, moved > Self.grabDistance {
+                    if !p.dragging, !p.cancelled, p.focus.panel != nil, hypot(dx, dy) > Self.grabDistance {
                         if Date().timeIntervalSince(p.began) >= Self.grabHold {
                             p.dragging = true
-                            scene.dragging = p.panel
-                            hover = nil
+                            scene.dragging = p.focus.panel
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         } else {
-                            p.cancelled = true // moved too fast after pinching: not a deliberate grab
+                            p.cancelled = true // flicked straight after pinching: not a deliberate grab
                         }
                     }
-                    if p.dragging, let id = p.panel {
+                    if p.dragging, let id = p.focus.panel {
                         scene.setOffset(id, CGSize(width: p.startOffset.width + dx, height: p.startOffset.height + dy))
                     }
                 }
                 pinch = p
             } else {
-                let id = panel(at: t.point, design: design)
-                pinch = PinchState(start: t.point, panel: id, startOffset: id.flatMap { scene.offsets[$0] } ?? .zero,
-                                   target: target(at: t.point, design: design), last: t.point)
+                // Pinch closed: act on whatever is focused right now, wherever the hand is.
+                pinch = PinchState(start: t.point, panel: focus.panel,
+                                   startOffset: focus.panel.flatMap { scene.offsets[$0] } ?? .zero,
+                                   focus: focus, last: t.point)
+                pinchFlash = true
+                UIImpactFeedbackGenerator(style: .rigid).impactOccurred()
             }
         } else if let p = pinch {
-            // Released (or hand lost): a drag drops the panel where it is; a clean quick pinch activates.
+            // Released (or hand lost): a drag drops the panel; a clean quick pinch selects.
             if p.dragging {
                 scene.dragging = nil
                 scene.saveOffsets()
             } else if !p.cancelled, track != nil {
-                activate(p.target)
+                activate(p.focus.control)
             }
             pinch = nil
+            pinchFlash = false
         }
-        // Only re-render the panels when the highlighted control actually changes.
-        let h = (pinch?.dragging ?? false) ? nil : track.flatMap { target(at: $0.point, design: design) }
-        if h != hover { hover = h }
     }
 
     private func localPoint(_ p: CGPoint, design: [String: CGRect]) -> CGPoint? {
         guard let rect = design["visit"] else { return nil }
         let quad = scene.quads["visit"] ?? Quad(rect: rect)
         guard let local = Homography.unproject(p, size: rect.size, quad: quad),
-              CGRect(origin: .zero, size: rect.size).insetBy(dx: -40, dy: -30).contains(local) else { return nil }
-        return local
+              CGRect(origin: .zero, size: rect.size).insetBy(dx: -40 * scale, dy: -30 * scale).contains(local) else { return nil }
+        return CGPoint(x: local.x / scale, y: local.y / scale) // panel-local (unscaled) space
     }
 
     /// The control under a point, forgiving: anything within reach snaps to the nearest target.
-    private func target(at p: CGPoint, design: [String: CGRect]) -> VisitTarget? {
+    private func target(at p: CGPoint, design: [String: CGRect], reach: CGFloat = 26) -> VisitTarget? {
         guard let local = localPoint(p, design: design) else { return nil }
-        let reach: CGFloat = 26
         let scored = visitFrames.map { key, r -> (VisitTarget, CGFloat) in
             let dx = max(r.minX - local.x, 0, local.x - r.maxX), dy = max(r.minY - local.y, 0, local.y - r.maxY)
             return (key, hypot(dx, dy))
@@ -223,7 +254,7 @@ struct OverlayView: View {
         guard ProcessInfo.processInfo.arguments.contains("-debugPinch") else { return }
         for _ in 0..<2 {
             try? await Task.sleep(for: .seconds(4))
-            let design = Layout.design(size: size, inset: inset)
+            let design = Layout.design(size: size, inset: inset, scale: scale, topics: plan.topics.count)
             guard let rect = design["visit"], let first = plan.topics.first,
                   let frame = visitFrames[.topic(first.id)],
                   let point = Homography.apply(CGPoint(x: frame.midX, y: frame.midY), size: rect.size,
@@ -289,6 +320,25 @@ struct OverlayView: View {
     }
 }
 
+/// Where you're aiming — the phone's equivalent of looking at something. Quiet until a panel is under it,
+/// and it blooms on a pinch so the gesture is visibly registered.
+private struct AimReticle: View {
+    let active: Bool
+    let pinching: Bool
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(Palette.ink.opacity(active ? 0.5 : 0.18), lineWidth: 1.5)
+                .frame(width: pinching ? 26 : 16, height: pinching ? 26 : 16)
+            Circle().fill(active ? Palette.accent.opacity(pinching ? 0.9 : 0.6) : Palette.ink.opacity(0.25))
+                .frame(width: 5, height: 5)
+        }
+        .animation(.easeOut(duration: 0.15), value: pinching)
+        .animation(.easeOut(duration: 0.2), value: active)
+        .allowsHitTesting(false)
+    }
+}
+
 /// Observes only the hand, so the cursor tracks the fingers at full rate without re-rendering the panels.
 private struct CursorLayer: View {
     @ObservedObject var hand: HandModel
@@ -304,8 +354,9 @@ private struct FingerCursor: View {
 
     var body: some View {
         ZStack {
-            Circle().stroke(Palette.accent, lineWidth: 1.5).frame(width: pinching ? 14 : 22, height: pinching ? 14 : 22)
-            Circle().fill(Palette.accent.opacity(pinching ? 0.9 : 0.25)).frame(width: pinching ? 14 : 6, height: pinching ? 14 : 6)
+            Circle().stroke(Palette.accent.opacity(pinching ? 0.9 : 0.4), lineWidth: 1.5)
+                .frame(width: pinching ? 13 : 19, height: pinching ? 13 : 19)
+            Circle().fill(Palette.accent.opacity(pinching ? 0.9 : 0.2)).frame(width: pinching ? 13 : 5, height: pinching ? 13 : 5)
         }
         .animation(.easeOut(duration: 0.12), value: pinching)
         .allowsHitTesting(false)

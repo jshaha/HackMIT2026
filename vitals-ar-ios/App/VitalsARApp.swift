@@ -19,6 +19,7 @@ struct ContentView: View {
     @StateObject private var plan = VisitPlan()
     @AppStorage("useBackend") private var useBackend = false
     @AppStorage("allowWiFi") private var allowWiFi = false
+    @AppStorage("panelScale") private var panelScale = 0.72
     @State private var showSettings = false
     @Environment(\.scenePhase) private var scenePhase
     @State private var screen = CGSize(width: 844, height: 390)
@@ -33,7 +34,7 @@ struct ContentView: View {
             #endif
             OverlayView(vitals: store.vitals, hrvHistory: store.hrvHistory, micLevel: mic.level,
                         connection: store.connection, scene: scene, plan: plan,
-                        size: fullSize, inset: insets) { showSettings = true }
+                        size: fullSize, inset: insets, scale: panelScale) { showSettings = true }
         }
         .background(
             Color.clear
@@ -42,6 +43,8 @@ struct ContentView: View {
                 .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets = $0; updateDesign() }
         )
         .onChange(of: store.agenda) { _, items in if let items { plan.syncAgenda(items) } }
+        .onChange(of: panelScale) { _, _ in updateDesign() }
+        .onChange(of: plan.topics.count) { _, _ in updateDesign() }
         .onChange(of: scenePhase) { _, phase in
             // iOS tears down the phone link's listener in the background; bring it back when we return.
             if phase == .active && useBackend { connect() }
@@ -56,7 +59,7 @@ struct ContentView: View {
             mic.start()
         }
         .sheet(isPresented: $showSettings) {
-            SettingsView(useBackend: $useBackend, allowWiFi: $allowWiFi, connection: store.connection, plan: plan,
+            SettingsView(useBackend: $useBackend, allowWiFi: $allowWiFi, panelScale: $panelScale, connection: store.connection, plan: plan,
                          resetPanels: { scene.resetOffsets() }) {
                 showSettings = false
                 connect()
@@ -71,7 +74,7 @@ struct ContentView: View {
     }
 
     private func updateDesign() {
-        scene.design = Layout.design(size: fullSize, inset: insets)
+        scene.design = Layout.design(size: fullSize, inset: insets, scale: panelScale, topics: plan.topics.count)
         scene.bounds = CGRect(origin: .zero, size: fullSize)
         scene.reanchorRequested = true
     }
@@ -84,6 +87,7 @@ struct ContentView: View {
 struct SettingsView: View {
     @Binding var useBackend: Bool
     @Binding var allowWiFi: Bool
+    @Binding var panelScale: Double
     let connection: VitalsStore.Connection
     @ObservedObject var plan: VisitPlan
     let resetPanels: () -> Void
@@ -100,6 +104,10 @@ struct SettingsView: View {
                         TextEditor(text: $topicsText)
                             .frame(minHeight: 120)
                             .font(.system(size: 15))
+                    }
+                    VStack(alignment: .leading) {
+                        Text("Panel size: \(Int(panelScale * 100))%").font(.footnote).foregroundStyle(.secondary)
+                        Slider(value: $panelScale, in: 0.6...1.2, step: 0.02)
                     }
                     Button("Reset panel positions", action: resetPanels)
                     Button("Start new visit") {

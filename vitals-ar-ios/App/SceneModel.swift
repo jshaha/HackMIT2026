@@ -68,7 +68,7 @@ final class SceneModel: ObservableObject {
     private var world: [String: [SIMD3<Float>]] = [:]
 
     /// Panel tilt: side panels turn toward the patient; the context panel tips its bottom edge forward.
-    static let yaw: [String: Float] = ["visit": -12, "vitals": 12, "fatigue": 12, "emotion": 12]
+    static let yaw: [String: Float] = ["visit": -9, "vitals": 9, "fatigue": 9, "emotion": 9]
     static let pitch: [String: Float] = ["context": -10]
 
     /// Visible screen area; panels are never allowed to stay outside it.
@@ -148,21 +148,42 @@ final class SceneModel: ObservableObject {
 }
 
 /// Screen layout used before anchoring and as the source for the 3D panels.
+/// Screen layout used before anchoring and as the source for the 3D panels. Panels are laid out at their
+/// natural size and then scaled: `scale` shrinks the whole UI without re-tuning any card's internals.
 enum Layout {
-    static let visitW: CGFloat = 200, rightW: CGFloat = 220
-
-    static func design(size: CGSize, inset: EdgeInsets) -> [String: CGRect] {
-        let L = inset.leading + 12, R = size.width - inset.trailing - 12
-        let top = max(inset.top, 10) + 30, bottom = size.height - max(inset.bottom, 10)
-        let gapL = L + visitW + 12, gapR = R - rightW - 12
-        let contextW = min(420, gapR - gapL)
-        var y = top
-        var rects: [String: CGRect] = ["visit": CGRect(x: L, y: top, width: visitW, height: bottom - top)]
-        for (id, h) in [("vitals", 104.0), ("fatigue", 118.0), ("emotion", 124.0)] {
-            rects[id] = CGRect(x: R - rightW, y: y, width: rightW, height: h)
-            y += h + 8
+    static let visitW: CGFloat = 186, rightW: CGFloat = 196, contextW: CGFloat = 430
+    /// Natural (unscaled) size of each panel; the card inside is drawn at this size and scaled to fit.
+    /// The visit panel is sized to its checklist rather than the screen, so it doesn't dominate the view.
+    static func naturalSize(_ id: String, screenHeight: CGFloat, scale: CGFloat, topics: Int = 2) -> CGSize {
+        switch id {
+        case "visit":
+            let content = 148 + CGFloat(max(topics, 1)) * 38
+            return CGSize(width: visitW, height: min(content, max(screenHeight / scale, 200)))
+        case "vitals": return CGSize(width: rightW, height: 98)
+        case "fatigue": return CGSize(width: rightW, height: 110)
+        case "emotion": return CGSize(width: rightW, height: 126)
+        default: return CGSize(width: contextW, height: 104)
         }
-        rects["context"] = CGRect(x: (gapL + gapR - contextW) / 2, y: bottom - 100, width: contextW, height: 100)
+    }
+
+    static func design(size: CGSize, inset: EdgeInsets, scale: CGFloat = 1, topics: Int = 2) -> [String: CGRect] {
+        let L = inset.leading + 20, R = size.width - inset.trailing - 20
+        let top = max(inset.top, 10) + 30, bottom = size.height - max(inset.bottom, 10)
+        func scaled(_ id: String) -> CGSize {
+            let n = naturalSize(id, screenHeight: bottom - top, scale: scale, topics: topics)
+            return CGSize(width: n.width * scale, height: n.height * scale)
+        }
+        let visit = scaled("visit"), right = scaled("vitals")
+        let gapL = L + visit.width + 12, gapR = R - right.width - 12
+        let context = CGSize(width: min(contextW * scale, gapR - gapL), height: 104 * scale)
+        var y = top
+        var rects: [String: CGRect] = ["visit": CGRect(origin: CGPoint(x: L, y: top), size: visit)]
+        for id in ["vitals", "fatigue", "emotion"] {
+            let s = scaled(id)
+            rects[id] = CGRect(x: R - s.width, y: y, width: s.width, height: s.height)
+            y += s.height + 8
+        }
+        rects["context"] = CGRect(x: (gapL + gapR - context.width) / 2, y: bottom - context.height, width: context.width, height: context.height)
         return rects
     }
 }
