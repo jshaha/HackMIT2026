@@ -97,28 +97,33 @@ export default function App() {
   useEffect(() => {
     if (!live) return
     let cancelled = false
-    const tick = async () => {
+    const grab = async (url: string) => {
       try {
-        const res = await fetch(`/reading.json?t=${Date.now()}`, { cache: "no-store" })
-        if (res.ok && !cancelled) {
-          apply((await res.json()) as Reading)
-          setPreviewTs(Date.now())
-        }
-        const ares = await fetch(`/agenda_state.json?t=${Date.now()}`, { cache: "no-store" })
-        if (ares.ok && !cancelled) setAgenda((await ares.json()) as AgendaState)
-        const sres = await fetch(`/visit_summary.json?t=${Date.now()}`, { cache: "no-store" })
-        if (sres.ok && !cancelled) setVisitSummary((await sres.json()) as VisitSummary)
-        const soares = await fetch(`/soa_state.json?t=${Date.now()}`, { cache: "no-store" })
-        if (soares.ok && !cancelled) setSoa((await soares.json()) as SoaState)
-        const edcres = await fetch(`/edc_forms.json?t=${Date.now()}`, { cache: "no-store" })
-        if (edcres.ok && !cancelled) setEdcForms((await edcres.json()) as EdcForms)
-        const ovres = await fetch(`/oversight_state.json?t=${Date.now()}`, { cache: "no-store" })
-        if (ovres.ok && !cancelled) setOversight((await ovres.json()) as OversightState)
-        const mres = await fetch(`/monitoring_report.json?t=${Date.now()}`, { cache: "no-store" })
-        if (mres.ok && !cancelled) setMonitoringReport((await mres.json()) as MonitoringReport)
+        const r = await fetch(`${url}?t=${Date.now()}`, { cache: "no-store" })
+        return r.ok ? await r.json() : null
       } catch {
-        /* keep last good reading */
+        return null
       }
+    }
+    const tick = async () => {
+      // Fetch everything in parallel, THEN apply all state in one continuation so
+      // React batches it into a single render per poll (no per-file re-render flicker).
+      const [rd, ag, sm, so, ed, ov, mr] = await Promise.all([
+        grab("/reading.json"), grab("/agenda_state.json"), grab("/visit_summary.json"),
+        grab("/soa_state.json"), grab("/edc_forms.json"), grab("/oversight_state.json"),
+        grab("/monitoring_report.json"),
+      ])
+      if (cancelled) return
+      if (rd) {
+        apply(rd as Reading)
+        setPreviewTs(Date.now())
+      }
+      if (ag) setAgenda(ag as AgendaState)
+      if (sm) setVisitSummary(sm as VisitSummary)
+      if (so) setSoa(so as SoaState)
+      if (ed) setEdcForms(ed as EdcForms)
+      if (ov) setOversight(ov as OversightState)
+      if (mr) setMonitoringReport(mr as MonitoringReport)
     }
     tick()
     const id = setInterval(tick, 2500)
