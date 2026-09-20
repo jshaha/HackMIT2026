@@ -295,25 +295,15 @@ struct OverlayView: View {
     private func drawOutlineAndLeaders(_ ctx: GraphicsContext, design: [String: CGRect], t: Double) {
         guard let face = scene.face else { return }
         let glow = Color(red: 0.3, green: 0.95, blue: 0.8) // bright teal: these lines sit on the camera image, not on frost
-        // The patient is framed by a soft oval, drawn as four arcs with gaps at the sides — enough to say
-        // "this is who we're reading" without tracing their face or dressing the view up as a scanner.
-        let frame = face.rect.insetBy(dx: -face.rect.width * 0.12, dy: -face.rect.height * 0.1)
-        // Drawn on a unit circle and then stretched to the face, so the four arcs stay separate: adding an arc
-        // to a path that already has a current point would join them with a line and close the oval up.
-        var unit = Path()
-        for quadrant in 0..<4 {
-            let mid = Double(quadrant) * 90 + 45 // centred on the diagonals, so the gaps fall at the sides
-            let span = 31.0
-            unit.move(to: CGPoint(x: cos((mid - span) * .pi / 180), y: sin((mid - span) * .pi / 180)))
-            unit.addArc(center: .zero, radius: 1, startAngle: .degrees(mid - span), endAngle: .degrees(mid + span),
-                        clockwise: false)
-        }
-        let ring = unit.applying(CGAffineTransform(translationX: frame.midX, y: frame.midY)
-            .scaledBy(x: frame.width / 2, y: frame.height / 2))
-        ctx.stroke(ring, with: .color(.black.opacity(0.22)), style: StrokeStyle(lineWidth: 4, lineCap: .round))
-        ctx.stroke(ring, with: .color(Palette.accent.opacity(0.85)), style: StrokeStyle(lineWidth: 1.6, lineCap: .round))
+        // One clean closed circle around the patient — the original framing. A true circle, sized off the face
+        // and centred on it, not a traced outline: it says "this is who we're reading" and nothing more.
+        let r = min(max(max(face.rect.width, face.rect.height) * 0.72, 60), size.height * 0.42)
+        let frame = CGRect(x: face.center.x - r, y: face.center.y - r, width: 2 * r, height: 2 * r)
+        let ring = Path(ellipseIn: frame)
+        ctx.stroke(ring, with: .color(.black.opacity(0.18)), lineWidth: 3)
+        ctx.stroke(ring, with: .color(.white.opacity(0.32)), lineWidth: 1)
 
-        // Each metric panel gets a line from the oval, in the panel's direction, to the panel's inner edge.
+        // Each metric panel gets a line from the circle, in the panel's direction, to the panel's inner edge.
         let c = face.center
         let edges: [(String, (Quad) -> CGPoint)] = [
             ("vitals", { $0.leftMid }), ("fatigue", { $0.leftMid }), ("emotion", { $0.leftMid }), ("context", { $0.topMid }),
