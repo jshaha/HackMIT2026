@@ -98,9 +98,30 @@ struct CameraView: UIViewRepresentable {
         view.session.delegate = context.coordinator
         let config = ARWorldTrackingConfiguration()
         config.worldAlignment = .gravity
+        if let format = Self.rppgVideoFormat() { config.videoFormat = format }
         view.session.run(config)
         Self.lockExposureForRPPG()
         return view
+    }
+
+    /// Pick the capture format that suits reading a pulse off skin rather than the one ARKit picks for
+    /// tracking: the highest resolution available, and among equal resolutions the *lowest* frame rate at or
+    /// above 30 fps. On an iPhone 16e that turns ARKit's default 1920×1440@60 into 1920×1440@30 — the same
+    /// detail in the face crop, but twice the exposure per frame (rPPG reads colour changes well under 1%, so
+    /// sensor noise is the enemy), and half the frames for ARKit and Vision to chew through. The pipeline is
+    /// throttled to 30 fps anyway, so nothing downstream loses out.
+    static func rppgVideoFormat() -> ARConfiguration.VideoFormat? {
+        let usable = ARWorldTrackingConfiguration.supportedVideoFormats.filter { $0.framesPerSecond >= 30 }
+        let best = usable.max { a, b in
+            let pa = a.imageResolution.width * a.imageResolution.height
+            let pb = b.imageResolution.width * b.imageResolution.height
+            // Same resolution: prefer the lower frame rate, which gets a longer exposure per frame.
+            return pa == pb ? b.framesPerSecond < a.framesPerSecond : pa < pb
+        }
+        if let best {
+            print("[camera] capture \(Int(best.imageResolution.width))×\(Int(best.imageResolution.height)) @\(best.framesPerSecond) fps")
+        }
+        return best
     }
 
     func updateUIView(_ uiView: ARView, context: Context) {}

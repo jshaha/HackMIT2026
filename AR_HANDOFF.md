@@ -4,7 +4,15 @@ The clinician's view of the pipeline, as AR on an iPhone. The rear camera tracks
 panels float in the room around their head: **vitals** (HR / BR / HRV), the **fatigue** meter with the agent's
 threshold and verdict, **emotional state** (from the voice leg, explained with the patient's chart), and
 **context analysis** (the agentic loop's reasoning). A left panel holds the **visit**: time left and topics to
-cover, checked off by **pinching in the scene** (pinch-and-hold then move to rearrange any panel).
+cover, checked off by **pinching in the scene**.
+
+**Gestures are the Vision Pro model.** Aim at a panel (screen centre — the reticle stands in for gaze) or
+simply hold your hand over it; it lights up, and a **pinch anywhere in view** activates what's highlighted.
+**Pinch and hold, then move** to pick a panel up and reposition it — the grab bar on its lower edge shows when
+it's ready. ⚙︎ also holds panel size (a single slider, 60–120%, 72% by default — every card is laid out at
+its natural size and scaled, so the overlay resizes without anything re-flowing) and the theme: **dark glass**
+(the default: charcoal cards, white text, neon teal) or **light frost**. The patient is framed by a single clean
+circle, with a line running from it out to each metric.
 
 The **iPhone is the sensor**: the app streams its rear-camera frames and mic audio to the Mac over the USB
 cable, the Mac runs the pipeline, and the vitals come back to the phone on the same connection. No Mac camera
